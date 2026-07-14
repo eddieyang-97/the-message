@@ -156,11 +156,11 @@ When the draw deck is exhausted:
 
 ### Count
 
-18 total:
+6 total:
 
-- 6 corresponding to red
-- 6 corresponding to blue
-- 6 corresponding to black
+- 2 corresponding to red
+- 2 corresponding to blue
+- 2 corresponding to black
 
 The printed codes are:
 
