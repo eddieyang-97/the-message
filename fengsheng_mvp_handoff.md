@@ -230,8 +230,6 @@ The chosen method is fixed for that transmission unless another effect replaces 
 
 ## 6.3 转移
 
-转移 replaces 退回.
-
 ### Timing
 
 - Only during your own turn.
