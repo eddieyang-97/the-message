@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { PhysicalCard, PhysicalCardId } from "../game/cards";
+import type { Faction, PhysicalCard, PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import { REACTION_TIMEOUT_OPTIONS, type ReactionTimeoutSeconds } from "./lobby-types";
@@ -23,6 +23,23 @@ export interface GameTableProps {
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
   onMarkDisconnectedPlayerDead: (playerId: string) => void;
   onCommand: (command: GameCommand) => void;
+}
+
+const AUTO_PASS_STORAGE_KEY = "fengsheng:auto-pass-no-action";
+
+export function shouldAutoPassReaction(
+  actions: readonly ProjectedLegalAction[],
+): boolean {
+  return actions.length === 1 && actions[0]?.type === "PASS_REACTION";
+}
+
+function loadAutoPassPreference(): boolean {
+  try {
+    const stored = localStorage.getItem(AUTO_PASS_STORAGE_KEY);
+    return stored === null ? true : stored === "true";
+  } catch {
+    return true;
+  }
 }
 
 function ReactionCountdown({ timer }: { timer: ReactionTimerSnapshot }) {
@@ -85,6 +102,12 @@ const ACTION_LABELS: Record<string, string> = {
 
 function cardTone(card: PhysicalCard): string {
   return card.color === "红" ? "red" : card.color === "蓝" ? "blue" : card.color === "红蓝" ? "dual" : "black";
+}
+
+export function factionBackgroundClass(faction: Faction): string {
+  if (faction === "军情") return "game-shell--faction-intelligence";
+  if (faction === "潜伏") return "game-shell--faction-undercover";
+  return "game-shell--faction-agent";
 }
 
 export function cardVariantText(card: PhysicalCard): string | undefined {
@@ -177,8 +200,18 @@ export function actionDetail(
   return ACTION_LABELS[action.type] ?? action.type;
 }
 
-function promptTitle(projection: PlayerProjection): string {
+export function promptTitle(projection: PlayerProjection): string {
   const actions = projection.legalActions;
+  if (
+    projection.phase === "preTransmission" &&
+    projection.pendingSecretOrder?.stage === "selection" &&
+    projection.activePlayerId === projection.own.id &&
+    !projection.reactionWindow
+  ) {
+    return actions.some((action) => action.type === "CLAIM_NO_SECRET_ORDER_MATCH")
+      ? "没有符合要求的手牌，请先声明"
+      : "请选择要传递的情报";
+  }
   if (actions.length === 0) return "等待其他玩家操作";
   if (actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT")) return "手牌超过 7 张，请先弃牌";
   if (actions.some((action) => action.type === "PASS_LOCK")) return "是否锁定这份情报？";
@@ -207,6 +240,19 @@ function mergeAuditLogs(
   return merged;
 }
 
+export function formatAuditEntries(
+  entries: readonly string[],
+  playerDisplayNames: Readonly<Record<string, string>>,
+): string[] {
+  return entries.map((entry) =>
+    Object.entries(playerDisplayNames).reduce(
+      (formatted, [playerId, displayName]) =>
+        formatted.split(playerId).join(`【${displayName}】`),
+      entry,
+    ),
+  );
+}
+
 export function GameTable({
   projection,
   playerDisplayNames = {},
@@ -223,6 +269,8 @@ export function GameTable({
   onCommand,
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
+  const [autoPassNoAction, setAutoPassNoAction] = useState(loadAutoPassPreference);
+  const lastAutoPassPrompt = useRef<string | undefined>(undefined);
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
   const actions = projection.legalActions;
@@ -252,7 +300,31 @@ export function GameTable({
   const selectableCardIds = new Set(playableCardIds);
   if (canStartTransmission) projection.own.hand.forEach((card) => selectableCardIds.add(card.id));
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
-  const auditEntries = mergeAuditLogs(projection.auditLog, roomAuditLog);
+  const auditEntries = formatAuditEntries(
+    mergeAuditLogs(projection.auditLog, roomAuditLog),
+    playerDisplayNames,
+  );
+  const autoPassPrompt = projection.reactionWindow
+    ? `${projection.reactionWindow.kind}:${projection.reactionWindow.currentResponderId}:${projection.auditLog.length}`
+    : undefined;
+
+  useEffect(() => {
+    if (!autoPassPrompt) {
+      lastAutoPassPrompt.current = undefined;
+      return;
+    }
+    if (
+      !autoPassNoAction ||
+      !connected ||
+      busy ||
+      !shouldAutoPassReaction(actions) ||
+      lastAutoPassPrompt.current === autoPassPrompt
+    ) {
+      return;
+    }
+    lastAutoPassPrompt.current = autoPassPrompt;
+    onCommand({ type: "PASS_REACTION" });
+  }, [actions, autoPassNoAction, autoPassPrompt, busy, connected, onCommand]);
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
@@ -260,13 +332,29 @@ export function GameTable({
   };
 
   return (
-    <main className="game-shell">
+    <main className={`game-shell ${factionBackgroundClass(projection.own.faction)}`}>
       <header className="game-topbar">
         <div><strong>风声</strong><span>{projection.mode === "duel" ? "双人模式" : "标准模式"}</span></div>
         <div className="game-status">
           <span>牌堆 {projection.drawPileCount}</span>
           <span>弃牌 {projection.publicDiscard.length}</span>
           <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断，游戏暂停"}</span>
+          <label className="auto-pass-control">
+            <input
+              checked={autoPassNoAction}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setAutoPassNoAction(checked);
+                try {
+                  localStorage.setItem(AUTO_PASS_STORAGE_KEY, String(checked));
+                } catch {
+                  // The preference remains active for this page when storage is unavailable.
+                }
+              }}
+              type="checkbox"
+            />
+            无可用反应时自动跳过
+          </label>
           {isHost && (
             <label className="table-timeout-control">
               反应时限
@@ -428,7 +516,7 @@ export function GameTable({
 
         <aside className="audit-panel">
           <h2>公开记录</h2>
-          <ol>{auditEntries.slice().reverse().map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
+          <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
         </aside>
       </section>
     </main>

@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { PhysicalCard } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
-import { actionDetail, cardVariantText } from "./GameTable";
+import {
+  actionDetail,
+  cardVariantText,
+  factionBackgroundClass,
+  formatAuditEntries,
+  promptTitle,
+  shouldAutoPassReaction,
+} from "./GameTable";
 
 const identityProbe = {
   id: "p1-02",
@@ -66,5 +73,57 @@ describe("game table card parameters", () => {
       projection,
       {},
     )).toBe("随机交出一张手牌");
+  });
+});
+
+describe("own faction background", () => {
+  it("uses a distinct background class for every faction", () => {
+    expect(factionBackgroundClass("军情")).toBe("game-shell--faction-intelligence");
+    expect(factionBackgroundClass("潜伏")).toBe("game-shell--faction-undercover");
+    expect(factionBackgroundClass("特工")).toBe("game-shell--faction-agent");
+  });
+});
+
+describe("automatic reaction passing", () => {
+  it("passes only when PASS_REACTION is the sole legal action", () => {
+    expect(shouldAutoPassReaction([{ type: "PASS_REACTION" }])).toBe(true);
+    expect(shouldAutoPassReaction([])).toBe(false);
+    expect(shouldAutoPassReaction([
+      { type: "PASS_REACTION" },
+      { type: "PLAY_COUNTER", cardId: "p1-03", targetInteractionId: "interaction-1" },
+    ])).toBe(false);
+    expect(shouldAutoPassReaction([{ type: "PASS_LOCK" }])).toBe(false);
+  });
+});
+
+describe("transmission prompt", () => {
+  it("asks the active player to select intelligence after secret-order polling", () => {
+    expect(promptTitle({
+      ...projection,
+      phase: "preTransmission",
+      activePlayerId: "甲",
+      pendingSecretOrder: {
+        stage: "selection",
+        targetPlayerId: "甲",
+      },
+      legalActions: [],
+    })).toBe("请选择要传递的情报");
+  });
+});
+
+describe("public audit log", () => {
+  it("shows display names instead of internal IDs and keeps chronological order", () => {
+    const entries = [
+      "0147dd0b放弃响应",
+      "0147dd0b完成与6740294b的公开文本交换",
+    ];
+
+    expect(formatAuditEntries(entries, {
+      "0147dd0b": "小甲",
+      "6740294b": "小乙",
+    })).toEqual([
+      "【小甲】放弃响应",
+      "【小甲】完成与【小乙】的公开文本交换",
+    ]);
   });
 });

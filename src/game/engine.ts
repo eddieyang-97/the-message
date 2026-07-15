@@ -705,6 +705,11 @@ export function assertGameStateInvariants(state: GameState): void {
     const expectedOrder = reactionOrderAfterTarget(
       state,
       state.reactionWindow.affectedPlayerId,
+    ).filter((playerId) =>
+      state.reactionWindow?.kind === "secretOrder" &&
+      state.pendingSecretOrder?.stage === "offering"
+        ? playerId !== state.reactionWindow.affectedPlayerId
+        : true,
     );
     if (
       responders.length !== expectedOrder.length ||
@@ -1441,12 +1446,20 @@ export function enterTransmissionPhase(state: GameState, actorId: PlayerId): voi
     verifiedNoMatch: false,
   };
   state.secretOrderStack = [];
-  state.reactionWindow = {
-    kind: "secretOrder",
-    affectedPlayerId: actorId,
-    responderOrder: reactionOrderAfterTarget(state, actorId),
-    nextResponderIndex: 0,
-  };
+  const responders = reactionOrderAfterTarget(state, actorId).filter(
+    (playerId) => playerId !== actorId,
+  );
+  if (responders.length === 0) {
+    state.pendingSecretOrder.stage = "selection";
+    state.reactionWindow = undefined;
+  } else {
+    state.reactionWindow = {
+      kind: "secretOrder",
+      affectedPlayerId: actorId,
+      responderOrder: responders,
+      nextResponderIndex: 0,
+    };
+  }
   state.auditLog.push(`${actorId}结束功能牌阶段，进入秘密下达窗口`);
   assertGameStateInvariants(state);
 }

@@ -1,9 +1,17 @@
 :root { --table-green: #244c3c; --table-gold: #c9a45d; }
 .game-shell { min-height: 100vh; color: #f7f0df; background: radial-gradient(circle at 45% 42%, #35644f, #173429 72%); }
+.game-shell--faction-intelligence { background: radial-gradient(circle at 45% 42%, #426f94, #172f47 72%); }
+.game-shell--faction-undercover { background: radial-gradient(circle at 45% 42%, #864b4a, #3d2026 72%); }
+.game-shell--faction-agent { background: radial-gradient(circle at 45% 42%, #3f7658, #183a2a 72%); }
+.game-shell--faction-intelligence .own-area { box-shadow: inset 0 0 0 4px #4e82b0; }
+.game-shell--faction-undercover .own-area { box-shadow: inset 0 0 0 4px #a34e50; }
+.game-shell--faction-agent .own-area { box-shadow: inset 0 0 0 4px #4f966c; }
 .game-topbar { display: flex; justify-content: space-between; gap: 24px; padding: 14px 24px; background: rgba(12, 26, 21, .85); border-bottom: 1px solid rgba(255,255,255,.12); }
 .game-topbar>div { display: flex; align-items: center; gap: 16px; }
 .game-topbar strong { font-family: "Noto Serif SC",serif; font-size: 24px; letter-spacing: .2em; }
 .game-status { font-size: 13px; }
+.auto-pass-control { display:flex; align-items:center; gap:6px; white-space:nowrap; cursor:pointer; }
+.auto-pass-control input { accent-color:#d4ad5b; }
 .table-timeout-control { display:flex; align-items:center; gap:6px; }.table-timeout-control select { padding:4px 6px; color:#f7f0df; background:#203a31; border:1px solid #6f897e; border-radius:5px; }
 .mark-dead-button { padding:5px 8px; color:#ffd8d2; background:#6f2722; border:1px solid #a85349; border-radius:5px; }.mark-dead-button:disabled { opacity:.55; }
 .online-dot { color: #a9e3b0; }.offline-dot { color: #ffaaa0; }

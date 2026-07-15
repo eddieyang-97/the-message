@@ -177,6 +177,17 @@ describe("破译", () => {
 });
 
 describe("秘密下达", () => {
+  it("初始询问不包含准备传情报的玩家", () => {
+    const state = game(319);
+
+    enterTransmissionPhase(state, "甲");
+
+    expect(state.reactionWindow?.responderOrder).toEqual(["乙", "丙", "丁", "戊"]);
+    expect(projectGameForPlayer(state, "甲").legalActions).not.toContainEqual({
+      type: "PASS_REACTION",
+    });
+  });
+
   it("在不可逆传递边界使用且只允许匹配颜色，使用牌进入可洗回暗区", () => {
     const state = game(320);
     const orderId = card((candidate) => candidate.variant?.kind === "secretOrder");
