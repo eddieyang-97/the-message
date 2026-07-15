@@ -9,7 +9,7 @@ The physical deck audit is complete and confirmed. For individual card instances
 
 ## 1. Product scope
 
-Build a private browser-based game for 5–8 friends.
+Build a private browser-based game for 2 or 5–8 friends.
 
 ### MVP includes
 
@@ -20,6 +20,7 @@ Build a private browser-based game for 5–8 friends.
 - Reconnection after refresh or disconnect
 - Chinese-only player-facing UI
 - Complete support for the audited 87-card physical deck
+- A deliberate 2-player duel variant with its own 73-card deck
 - Deterministic and auditable game-state transitions
 
 ### Excluded from MVP
@@ -34,6 +35,59 @@ Build a private browser-based game for 5–8 friends.
 - Heavy animation
 
 Correctness and auditability take priority over scalability, abstraction, and visual polish.
+
+---
+
+## Design principles
+
+### Player-facing language
+
+All player-facing text must be Chinese, including lobby text, buttons, prompts, validation errors, game logs, and reconnection messages.
+
+Internal TypeScript identifiers, filenames, database fields, and protocol types may use English.
+
+### Separation of responsibilities
+
+- Executable rules belong in typed `.ts` modules.
+- Physical card data belongs in the typed `cards.ts` manifest.
+- Human-readable rules and unresolved decisions belong in `.md` files.
+- Do not encode unresolved rule assumptions inside card data.
+
+### Prefer explicit rules over premature abstraction
+
+Prefer explicit card-specific handlers and validators over a generic effect DSL during MVP.
+
+Extract shared abstractions only after two or more confirmed rules have genuinely identical timing and semantics.
+
+Cards such as 离间, 转移, 截获, 掉包, and 锁定 may look similar at a high level, but their legal timing, priority, restoration, and information effects differ.
+
+### Authoritative state invariants
+
+Every accepted command must leave the authoritative game state valid.
+
+Run invariant checks after every transition in development and tests. Never rely on a later phase to repair temporarily invalid authoritative state.
+
+### Server-generated legal actions
+
+The rules engine is responsible for generating legal actions.
+
+The client renders those actions and submits the selected command. It must not independently determine whether an action is legal.
+
+### Stable physical-card identity
+
+Cards are physical instances, not only card definitions.
+
+Preserve stable physical-card IDs throughout the draw pile, hands, pending transmission, accepted intelligence areas, discard zones, and removed-card zones.
+
+Two cards with the same name may still differ by color, direction-circle icon, transmission method, or private mapping.
+
+### Information visibility is part of correctness
+
+Information access is a rules concern, not merely a UI concern.
+
+Every transition should make clear which resulting information is public, private to one player, private to a subset of players, or server-only.
+
+No hidden information should be inferable from client payload shape, omitted list length, action ordering, or error detail.
 
 ---
 
@@ -148,10 +202,26 @@ A living 特工 personally wins when they have at least six physical intelligenc
 
 | Players | 军情 | 潜伏 | 特工 |
 |---:|---:|---:|---:|
+| 2 | 1 | 1 | 0 |
 | 5 | 2 | 2 | 1 |
 | 6 | 2 | 2 | 2 |
 | 7 | 3 | 3 | 1 |
 | 8 | 3 | 3 | 2 |
+
+### Two-player duel variant
+
+The 2-player game is a deliberate reduced variant, not the standard physical-game configuration.
+
+- Assign one 军情 and one 潜伏. Do not include 特工.
+- Both players can infer the opponent's faction from their own faction and the known distribution.
+- Build the duel deck from `PHYSICAL_DECK`, preserving every retained physical card's stable ID and printed properties.
+- Remove all 6 截获 cards.
+- Remove only the 3 identity-code 试探 cards.
+- Keep all 6 draw/discard 试探 cards; their function effects remain legal.
+- Remove all 5 离间 cards because there is no meaningful third target for redirection.
+- The resulting duel deck contains exactly 73 physical cards.
+- Do not change `PHYSICAL_DECK` or its standard 87-card invariants. Apply the duel filter during game initialization.
+- Maintain separate automated invariants for the duel deck composition.
 
 ---
 
@@ -175,7 +245,18 @@ Intelligence in front of dead players remains on the table.
 
 ---
 
-## 6. Transmission model
+## 6. Turn setup
+
+- Every player starts with 2 cards in both the 2-player duel and standard 5–8-player games.
+- Deal starting hands from the shuffled mode-specific deck without exposing card identities.
+- The active player draws 2 cards at the start of their turn.
+- `seatOrder` records the players in clockwise table order, and normal turns advance clockwise.
+- Whether the first player performs the normal turn-start draw remains unresolved and must not be assumed in code.
+- Initial active-player selection and whether dead seats are skipped remain unresolved.
+
+---
+
+## 7. Transmission model
 
 ### Default direction
 
@@ -201,7 +282,7 @@ Use explicit server state for the current intelligence, intended recipient, fixe
 
 ---
 
-## 7. Timing and card rules
+## 8. Timing and card rules
 
 ### 截获
 
@@ -383,7 +464,7 @@ The draw faction is encoded per physical card in `cards.ts`.
 
 ---
 
-## 8. Discards and reshuffling
+## 9. Discards and reshuffling
 
 Unless stated otherwise, discarded cards are face up.
 
@@ -411,7 +492,7 @@ type DiscardZones = {
 
 ---
 
-## 9. Recommended engine architecture
+## 10. Recommended engine architecture
 
 Use a server-authoritative deterministic rules package.
 
@@ -483,7 +564,7 @@ This is especially important for chained 截获 and 识破.
 
 ---
 
-## 10. Testing priorities
+## 11. Testing priorities
 
 Before UI work, add engine tests for:
 
@@ -508,7 +589,7 @@ Run `cards.test.ts` as a deck-data gate in CI.
 
 ---
 
-## 11. Remaining decisions before a complete game
+## 12. Remaining decisions before a complete game
 
 The deck audit is finished. Do not reopen it unless a failing test or physical-card comparison identifies a specific conflict.
 
@@ -528,7 +609,7 @@ Keep these decisions centralized in `docs/rules-decisions.md` rather than buryin
 
 ---
 
-## 12. Immediate Codex task
+## 13. Immediate Codex task
 
 Start with the rules package, not the UI.
 
@@ -540,12 +621,13 @@ After that vertical slice, implement transmission and response timing before ind
 
 ---
 
-## 13. Definition of done for the first engine milestone
+## 14. Definition of done for the first engine milestone
 
 - Tests pass
-- A game can be initialized for 5–8 players
+- A game can be initialized for 2 or 5–8 players
 - Faction counts are correct
-- The 87-card physical deck is shuffled without duplicating or losing cards
+- Standard games shuffle the 87-card physical deck without duplicating or losing cards
+- 2-player games shuffle the confirmed 73-card duel deck without duplicating or losing retained cards
 - Each client projection reveals only legal information
 - A player can start 密电, 文本, or 直达 transmission
 - Circle direction is selected and fixed
