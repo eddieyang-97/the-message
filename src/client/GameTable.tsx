@@ -27,10 +27,14 @@ export interface GameTableProps {
 
 const AUTO_PASS_STORAGE_KEY = "fengsheng:auto-pass-no-action";
 
-export function shouldAutoPassReaction(
+export function automaticPassCommand(
   actions: readonly ProjectedLegalAction[],
-): boolean {
-  return actions.length === 1 && actions[0]?.type === "PASS_REACTION";
+): Extract<GameCommand, { type: "PASS_REACTION" | "PASS_LOCK" }> | undefined {
+  if (actions.length !== 1) return undefined;
+  const action = actions[0];
+  return action?.type === "PASS_REACTION" || action?.type === "PASS_LOCK"
+    ? action
+    : undefined;
 }
 
 function loadAutoPassPreference(): boolean {
@@ -304,9 +308,14 @@ export function GameTable({
     mergeAuditLogs(projection.auditLog, roomAuditLog),
     playerDisplayNames,
   );
-  const autoPassPrompt = projection.reactionWindow
-    ? `${projection.reactionWindow.kind}:${projection.reactionWindow.currentResponderId}:${projection.auditLog.length}`
-    : undefined;
+  const autoPassAction = automaticPassCommand(actions);
+  const autoPassPrompt = reactionTimer?.promptId ?? (
+    projection.reactionWindow
+      ? `${projection.reactionWindow.kind}:${projection.reactionWindow.currentResponderId}:${projection.auditLog.length}`
+      : projection.transmission?.receiptStage === "lockOffer"
+        ? `lock:${projection.transmission.senderId}:${projection.transmission.intendedRecipientId}:${projection.auditLog.length}`
+        : undefined
+  );
 
   useEffect(() => {
     if (!autoPassPrompt) {
@@ -317,14 +326,14 @@ export function GameTable({
       !autoPassNoAction ||
       !connected ||
       busy ||
-      !shouldAutoPassReaction(actions) ||
+      !autoPassAction ||
       lastAutoPassPrompt.current === autoPassPrompt
     ) {
       return;
     }
     lastAutoPassPrompt.current = autoPassPrompt;
-    onCommand({ type: "PASS_REACTION" });
-  }, [actions, autoPassNoAction, autoPassPrompt, busy, connected, onCommand]);
+    onCommand(autoPassAction);
+  }, [autoPassAction, autoPassNoAction, autoPassPrompt, busy, connected, onCommand]);
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
@@ -353,7 +362,7 @@ export function GameTable({
               }}
               type="checkbox"
             />
-            无可用反应时自动跳过
+            无可用反应或锁定时自动跳过
           </label>
           {isHost && (
             <label className="table-timeout-control">

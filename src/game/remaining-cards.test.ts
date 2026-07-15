@@ -134,6 +134,25 @@ describe("试探", () => {
     passAll(draw);
     expect(draw.players["乙"].hand).toHaveLength(before + 1);
   });
+
+  it("抽弃型试探遇到唯一手牌时自动弃置", () => {
+    const state = game(305);
+    const probeId = card(
+      (candidate) =>
+        candidate.variant?.kind === "probeDrawDiscard" &&
+        candidate.variant.drawFaction !== state.players["乙"].faction,
+    );
+    putInHand(state, "甲", probeId);
+    state.drawPile.push(...state.players["乙"].hand.splice(1));
+    const onlyCard = state.players["乙"].hand[0];
+
+    playProbe(state, "甲", probeId, "乙");
+    passAll(state);
+
+    expect(state.players["乙"].hand).toEqual([]);
+    expect(state.publicDiscard).toContain(onlyCard);
+    expect(state.activeFunctionAction).toBeUndefined();
+  });
 });
 
 describe("破译", () => {

@@ -4,11 +4,11 @@ import type { PhysicalCard } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import {
   actionDetail,
+  automaticPassCommand,
   cardVariantText,
   factionBackgroundClass,
   formatAuditEntries,
   promptTitle,
-  shouldAutoPassReaction,
 } from "./GameTable";
 
 const identityProbe = {
@@ -85,14 +85,22 @@ describe("own faction background", () => {
 });
 
 describe("automatic reaction passing", () => {
-  it("passes only when PASS_REACTION is the sole legal action", () => {
-    expect(shouldAutoPassReaction([{ type: "PASS_REACTION" }])).toBe(true);
-    expect(shouldAutoPassReaction([])).toBe(false);
-    expect(shouldAutoPassReaction([
+  it("passes only when PASS_REACTION or PASS_LOCK is the sole legal action", () => {
+    expect(automaticPassCommand([{ type: "PASS_REACTION" }])).toEqual({
+      type: "PASS_REACTION",
+    });
+    expect(automaticPassCommand([{ type: "PASS_LOCK" }])).toEqual({
+      type: "PASS_LOCK",
+    });
+    expect(automaticPassCommand([])).toBeUndefined();
+    expect(automaticPassCommand([
       { type: "PASS_REACTION" },
       { type: "PLAY_COUNTER", cardId: "p1-03", targetInteractionId: "interaction-1" },
-    ])).toBe(false);
-    expect(shouldAutoPassReaction([{ type: "PASS_LOCK" }])).toBe(false);
+    ])).toBeUndefined();
+    expect(automaticPassCommand([
+      { type: "PASS_LOCK" },
+      { type: "PLAY_LOCK", cardId: "p1-03" },
+    ])).toBeUndefined();
   });
 });
 

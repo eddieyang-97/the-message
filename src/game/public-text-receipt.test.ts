@@ -138,6 +138,23 @@ describe("公开文本作为接收情报", () => {
     expect(state.activePlayerId).toBe("乙");
   });
 
+  it("强制弃牌时仅有一张手牌则自动弃置", () => {
+    const state = game(106);
+    setFaction(state, "乙", "潜伏");
+    const text = cardWhere(
+      (card) => card.name === "公开文本" && card.color === "红",
+    );
+    state.drawPile.push(...state.players["乙"].hand.splice(1));
+    const onlyCard = state.players["乙"].hand[0];
+
+    acceptPublicText(state, text);
+
+    expect(state.players["乙"].hand).not.toContain(onlyCard);
+    expect(state.players["乙"].hand).toHaveLength(2);
+    expect(state.publicDiscard).toContain(onlyCard);
+    expect(state.pendingPublicTextReceipt).toBeUndefined();
+  });
+
   it("非强制阵营可选择摸牌，牌库为空时洗回弃牌继续摸", () => {
     const state = game(103);
     setFaction(state, "乙", "军情");

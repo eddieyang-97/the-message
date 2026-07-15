@@ -1822,10 +1822,17 @@ function finishActiveFunctionAction(state: GameState): void {
       assertGameStateInvariants(state);
       return;
     }
-    action.stage = "awaitingDiscard";
-    state.auditLog.push(`${source.id}私下查看${target.id}的手牌`);
-    assertGameStateInvariants(state);
-    return;
+    if (target.hand.length === 1) {
+      const [discarded] = target.hand.splice(0, 1);
+      if (!discarded) throw new Error("危险情报自动弃牌失败");
+      state.publicDiscard.push(discarded);
+      state.auditLog.push(`${source.id}通过危险情报自动弃置${target.id}唯一的手牌`);
+    } else {
+      action.stage = "awaitingDiscard";
+      state.auditLog.push(`${source.id}私下查看${target.id}的手牌`);
+      assertGameStateInvariants(state);
+      return;
+    }
   } else {
     const probe = cardById(action.sourceCardId);
     if (probe.variant?.kind === "probeIdentity") {
@@ -1842,6 +1849,11 @@ function finishActiveFunctionAction(state: GameState): void {
       state.auditLog.push(`${target.id}因试探摸${drawn.length}张牌`);
     } else if (target.hand.length === 0) {
       state.auditLog.push(`${target.id}因试探须弃牌，但其没有手牌`);
+    } else if (target.hand.length === 1) {
+      const [discarded] = target.hand.splice(0, 1);
+      if (!discarded) throw new Error("试探自动弃牌失败");
+      state.publicDiscard.push(discarded);
+      state.auditLog.push(`${target.id}因试探自动弃置唯一的手牌`);
     } else {
       action.stage = "awaitingProbeDiscard";
       state.auditLog.push(`${target.id}须因试探弃置一张手牌`);
@@ -2334,6 +2346,14 @@ function beginPublicTextReceiptEffect(
       finishAcceptedIntelligence(state, receiver);
       return;
     }
+    if (receiver.hand.length === 1) {
+      const [discarded] = receiver.hand.splice(0, 1);
+      if (!discarded) throw new Error("公开文本自动弃牌失败");
+      state.publicDiscard.push(discarded);
+      state.auditLog.push(`${receiver.id}因公开文本自动弃置唯一的手牌`);
+      finishAcceptedIntelligence(state, receiver);
+      return;
+    }
     state.pendingPublicTextReceipt = {
       recipientId: receiver.id,
       cardId: card.id as PhysicalCardId,
@@ -2443,6 +2463,14 @@ export function choosePublicTextReceiptEffect(
   if (choice === "discardOne") {
     if (receiver.hand.length === 0) {
       state.auditLog.push(`${actorId}选择为公开文本弃牌，但其没有手牌`);
+      finishAcceptedIntelligence(state, receiver);
+      return;
+    }
+    if (receiver.hand.length === 1) {
+      const [discarded] = receiver.hand.splice(0, 1);
+      if (!discarded) throw new Error("公开文本自动弃牌失败");
+      state.publicDiscard.push(discarded);
+      state.auditLog.push(`${actorId}因公开文本自动弃置唯一的手牌`);
       finishAcceptedIntelligence(state, receiver);
       return;
     }

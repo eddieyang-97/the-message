@@ -283,4 +283,19 @@ describe("已实现的行动阶段功能牌", () => {
     expect(state.publicDiscard).toContain(chosen);
     expect(state.activeFunctionAction).toBeUndefined();
   });
+
+  it("危险情报目标只有一张手牌时自动弃置", () => {
+    const state = game(24);
+    const dangerous = cardId("危险情报");
+    putInHand(state, "甲", dangerous);
+    state.drawPile.push(...state.players["乙"].hand.splice(1));
+    const onlyCard = state.players["乙"].hand[0];
+
+    playDangerousIntelligence(state, "甲", dangerous, "乙");
+    passAll(state);
+
+    expect(state.players["乙"].hand).toEqual([]);
+    expect(state.publicDiscard).toContain(onlyCard);
+    expect(state.activeFunctionAction).toBeUndefined();
+  });
 });
