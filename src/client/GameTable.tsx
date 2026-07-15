@@ -87,12 +87,36 @@ function cardTone(card: PhysicalCard): string {
   return card.color === "红" ? "red" : card.color === "蓝" ? "blue" : card.color === "红蓝" ? "dual" : "black";
 }
 
+export function cardVariantText(card: PhysicalCard): string | undefined {
+  const variant = card.variant;
+  if (!variant) return undefined;
+  if (variant.kind === "probeIdentity") {
+    return `身份代码：军情→${variant.mapping["军情"]} · 潜伏→${variant.mapping["潜伏"]} · 特工→${variant.mapping["特工"]}`;
+  }
+  if (variant.kind === "probeDrawDiscard") {
+    return `${variant.drawFaction}摸 1 张；其他阵营弃 1 张`;
+  }
+  if (variant.kind === "secretOrder") {
+    return `听风→${variant.mapping["听风"]} · 看雨→${variant.mapping["看雨"]} · 日落→${variant.mapping["日落"]}`;
+  }
+  return undefined;
+}
+
+function probeVariantLabel(card: PhysicalCard | undefined): string | undefined {
+  if (card?.variant?.kind === "probeIdentity") return "身份代码";
+  if (card?.variant?.kind === "probeDrawDiscard") {
+    return `${card.variant.drawFaction}摸牌／其他阵营弃牌`;
+  }
+  return undefined;
+}
+
 function CardView({ card, selected, playable, onClick }: {
   card: PhysicalCard;
   selected?: boolean;
   playable?: boolean;
   onClick?: () => void;
 }) {
+  const variantText = cardVariantText(card);
   return (
     <button
       className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}`}
@@ -102,6 +126,7 @@ function CardView({ card, selected, playable, onClick }: {
     >
       <strong>{card.name}</strong>
       <span>{card.color} · {card.transmission}</span>
+      {variantText && <small>{variantText}</small>}
       {card.circle && <small>可选方向</small>}
     </button>
   );
@@ -119,7 +144,7 @@ function actionTargetId(action: ProjectedLegalAction): string | undefined {
   return undefined;
 }
 
-function actionDetail(
+export function actionDetail(
   action: ProjectedLegalAction,
   projection: PlayerProjection,
   playerDisplayNames: Readonly<Record<string, string>>,
@@ -133,6 +158,17 @@ function actionDetail(
       .find((player) => player.id === action.targetPlayerId)
       ?.intelligence.find((card) => card.id === action.targetIntelligenceCardId);
     return `烧毁 → ${playerDisplayNames[action.targetPlayerId] ?? action.targetPlayerId} 的${targetCard ? `「${targetCard.name}」` : "情报"}`;
+  }
+  if (action.type === "PLAY_PROBE") {
+    const card = projection.own.hand.find((candidate) => candidate.id === action.cardId);
+    const variant = probeVariantLabel(card);
+    return `试探${variant ? `（${variant}）` : ""}${target ? ` → ${target}` : ""}`;
+  }
+  if (action.type === "PLAY_SECRET_ORDER") {
+    return `秘密下达「${action.word}」`;
+  }
+  if (action.type === "CHOOSE_PROBE_IDENTITY") {
+    return action.choice === "announce" ? "公开身份代码" : "随机交出一张手牌";
   }
   if (target) return `${ACTION_LABELS[action.type] ?? action.type} → ${target}`;
   if (action.type === "CHOOSE_PUBLIC_TEXT_EFFECT") {
