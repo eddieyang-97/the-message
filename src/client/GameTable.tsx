@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { PhysicalCard, PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
-import type { GameCommand } from "../server";
+import type { GameCommand, ReactionTimerSnapshot } from "../server";
+import { REACTION_TIMEOUT_OPTIONS, type ReactionTimeoutSeconds } from "./lobby-types";
 import "./game-table.css";
 
 export type ProjectedLegalAction = PlayerProjection["legalActions"][number];
@@ -12,7 +13,39 @@ export interface GameTableProps {
   connected: boolean;
   busy?: boolean;
   errorMessage?: string;
+  reactionTimer?: ReactionTimerSnapshot | null;
+  isHost?: boolean;
+  reactionTimeoutSeconds: ReactionTimeoutSeconds;
+  roomAuditLog?: readonly string[];
+  onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
   onCommand: (command: GameCommand) => void;
+}
+
+function ReactionCountdown({ timer }: { timer: ReactionTimerSnapshot }) {
+  const [now, setNow] = useState(() => performance.now());
+  const [localDeadline, setLocalDeadline] = useState(
+    () => performance.now() + timer.remainingMs,
+  );
+
+  useEffect(() => {
+    const receivedAt = performance.now();
+    setNow(receivedAt);
+    setLocalDeadline(receivedAt + timer.remainingMs);
+    if (timer.paused) return;
+    const interval = window.setInterval(() => setNow(performance.now()), 250);
+    return () => window.clearInterval(interval);
+  }, [timer.paused, timer.promptId, timer.remainingMs]);
+
+  const remainingMs = timer.paused
+    ? timer.remainingMs
+    : Math.max(0, localDeadline - now);
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+
+  return (
+    <span className={`reaction-countdown${timer.paused ? " reaction-countdown--paused" : ""}`}>
+      {timer.paused ? `计时暂停 · ${remainingSeconds} 秒` : `${remainingSeconds} 秒`}
+    </span>
+  );
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -99,7 +132,36 @@ function promptTitle(projection: PlayerProjection): string {
   return projection.activePlayerId === projection.own.id ? "你的行动阶段" : "请选择操作";
 }
 
-export function GameTable({ projection, connected, busy = false, errorMessage, onCommand }: GameTableProps) {
+function mergeAuditLogs(
+  gameEntries: readonly string[],
+  roomEntries: readonly string[],
+): string[] {
+  const merged = [...gameEntries];
+  const gameCounts = new Map<string, number>();
+  const roomCounts = new Map<string, number>();
+  for (const entry of gameEntries) {
+    gameCounts.set(entry, (gameCounts.get(entry) ?? 0) + 1);
+  }
+  for (const entry of roomEntries) {
+    const occurrence = (roomCounts.get(entry) ?? 0) + 1;
+    roomCounts.set(entry, occurrence);
+    if (occurrence > (gameCounts.get(entry) ?? 0)) merged.push(entry);
+  }
+  return merged;
+}
+
+export function GameTable({
+  projection,
+  connected,
+  busy = false,
+  errorMessage,
+  reactionTimer,
+  isHost = false,
+  reactionTimeoutSeconds,
+  roomAuditLog = [],
+  onReactionTimeoutChange,
+  onCommand,
+}: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
@@ -116,6 +178,7 @@ export function GameTable({ projection, connected, busy = false, errorMessage, o
   const selectableCardIds = new Set(playableCardIds);
   if (canStartTransmission) projection.own.hand.forEach((card) => selectableCardIds.add(card.id));
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
+  const auditEntries = mergeAuditLogs(projection.auditLog, roomAuditLog);
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
@@ -130,6 +193,20 @@ export function GameTable({ projection, connected, busy = false, errorMessage, o
           <span>牌堆 {projection.drawPileCount}</span>
           <span>弃牌 {projection.publicDiscard.length}</span>
           <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断，游戏暂停"}</span>
+          {isHost && (
+            <label className="table-timeout-control">
+              反应时限
+              <select
+                disabled={busy || !connected}
+                onChange={(event) => onReactionTimeoutChange(Number(event.target.value) as ReactionTimeoutSeconds)}
+                value={reactionTimeoutSeconds}
+              >
+                {REACTION_TIMEOUT_OPTIONS.map((seconds) => (
+                  <option key={seconds} value={seconds}>{seconds === 0 ? "关闭" : `${seconds} 秒`}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </header>
 
@@ -181,7 +258,10 @@ export function GameTable({ projection, connected, busy = false, errorMessage, o
 
           <section className="prompt-panel">
             <div>
-              <p>{projection.reactionWindow ? `反应窗口：${projection.reactionWindow.kind}` : "行动提示"}</p>
+              <p>
+                {projection.reactionWindow ? `反应窗口：${projection.reactionWindow.kind}` : "行动提示"}
+                {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
+              </p>
               <h2>{promptTitle(projection)}</h2>
             </div>
             <div className="prompt-actions">
@@ -243,7 +323,7 @@ export function GameTable({ projection, connected, busy = false, errorMessage, o
 
         <aside className="audit-panel">
           <h2>公开记录</h2>
-          <ol>{projection.auditLog.slice().reverse().map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
+          <ol>{auditEntries.slice().reverse().map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
         </aside>
       </section>
     </main>

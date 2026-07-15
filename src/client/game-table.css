@@ -4,6 +4,7 @@
 .game-topbar>div { display: flex; align-items: center; gap: 16px; }
 .game-topbar strong { font-family: "Noto Serif SC",serif; font-size: 24px; letter-spacing: .2em; }
 .game-status { font-size: 13px; }
+.table-timeout-control { display:flex; align-items:center; gap:6px; }.table-timeout-control select { padding:4px 6px; color:#f7f0df; background:#203a31; border:1px solid #6f897e; border-radius:5px; }
 .online-dot { color: #a9e3b0; }.offline-dot { color: #ffaaa0; }
 .game-error,.winner-banner { padding: 10px 24px; text-align: center; background: #8c3028; }
 .winner-banner { background: #92722e; font-size: 18px; }
@@ -21,6 +22,7 @@
 .table-center p { margin:0; color:#d8cab0; }.hidden-card { width:68px; height:94px; display:grid; place-items:center; border:1px solid #b99a63; border-radius:7px; background:repeating-linear-gradient(45deg,#2d2923,#2d2923 6px,#463b2d 6px,#463b2d 12px); font-size:12px; }
 .prompt-panel,.own-area,.inspected-panel { margin-top:12px; padding:14px 18px; color:#251f18; background:rgba(255,250,239,.96); border-radius:12px; }
 .prompt-panel { display:flex; align-items:center; justify-content:space-between; gap:16px; }.prompt-panel p,.prompt-panel h2 { margin:2px 0; }.prompt-panel p { color:#766a5c;font-size:12px; }.prompt-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }.prompt-actions button { padding:9px 14px; border:0; border-radius:7px; color:white; background:#8a2f25; }
+.reaction-countdown { display:inline-block; margin-left:9px; padding:2px 7px; color:#fff; background:#8a2f25; border-radius:999px; font-variant-numeric:tabular-nums; }.reaction-countdown--paused { background:#756c60; }
 .own-area>div:first-child { display:flex; justify-content:space-between; align-items:center; }.own-area h2,.inspected-panel h3 { margin:0 0 8px; }.hand-row { display:flex; gap:8px; overflow-x:auto; padding:5px; }
 .transmission-composer { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding-top:10px; border-top:1px solid #d8cebc; }.transmission-composer select,.transmission-composer button { padding:7px 10px; border:1px solid #b9aa91; border-radius:6px; }.transmission-composer button { color:white;background:#8a2f25; }
 .game-card { width:92px; min-width:92px; height:126px; display:flex; flex-direction:column; justify-content:space-between; padding:9px 7px; text-align:left; color:#26211b; border:2px solid #b4aa99; border-radius:8px; background:#eee9de; box-shadow:0 4px 8px rgba(0,0,0,.18); }

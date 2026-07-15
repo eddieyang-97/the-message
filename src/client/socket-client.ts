@@ -7,7 +7,7 @@ import type {
   StartSeatMode,
 } from "../room";
 import type { PlayerProjection } from "../game/engine";
-import type { GameCommand } from "../server";
+import type { GameCommand, ReactionTimerSnapshot } from "../server";
 
 type AckSuccess<T> = { ok: true; data: T };
 type AckFailure = { ok: false; error: { code?: string; message: string } };
@@ -39,6 +39,7 @@ export interface LobbySocketClient {
   onConnect(listener: () => void): () => void;
   onDisconnect(listener: () => void): () => void;
   onGameSnapshot(listener: (projection: PlayerProjection) => void): () => void;
+  onReactionTimer(listener: (timer: ReactionTimerSnapshot | null) => void): () => void;
   sendGameCommand(command: GameCommand): Promise<PlayerProjection>;
   disconnect(): void;
 }
@@ -99,6 +100,10 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
     onGameSnapshot(listener) {
       socket.on("game:snapshot", listener);
       return () => socket.off("game:snapshot", listener);
+    },
+    onReactionTimer(listener) {
+      socket.on("game:reaction-timer", listener);
+      return () => socket.off("game:reaction-timer", listener);
     },
     sendGameCommand: (command) => emitAck(socket, "game:command", { command }),
     disconnect: () => socket.disconnect(),

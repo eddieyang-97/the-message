@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { PlayerProjection } from "../game/engine";
 import type { RoomEntryResult, RoomSnapshot } from "../room";
-import type { GameCommand } from "../server";
+import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import { GameTable } from "./GameTable";
 import { LandingPage } from "./LandingPage";
 import type {
@@ -71,6 +71,7 @@ export function App() {
   const [notice, setNotice] = useState<string>();
   const [game, setGame] = useState<PlayerProjection>();
   const [connected, setConnected] = useState(true);
+  const [reactionTimer, setReactionTimer] = useState<ReactionTimerSnapshot | null>(null);
 
   const enterRoom = useCallback((entry: RoomEntryResult) => {
     const nextCredentials = {
@@ -117,6 +118,7 @@ export function App() {
   }), []);
 
   useEffect(() => client.onGameSnapshot(setGame), []);
+  useEffect(() => client.onReactionTimer(setReactionTimer), []);
   useEffect(() => client.onDisconnect(() => setConnected(false)), []);
 
   useEffect(() => client.onConnect(() => {
@@ -174,14 +176,21 @@ export function App() {
   if (game) {
     return (
       <GameTable
-        busy={busyAction === "game-command"}
+        busy={busyAction === "game-command" || busyAction === "timeout"}
         connected={connected}
         errorMessage={errorMessage}
+        isHost={room.hostPlayerId === credentials.playerId}
         onCommand={(command: GameCommand) => void runAction("game-command", async () => {
           const updated = await client.sendGameCommand(command);
           setGame(updated);
         })}
         projection={game}
+        reactionTimer={reactionTimer}
+        reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
+        roomAuditLog={room.publicAuditLog}
+        onReactionTimeoutChange={(seconds) => void runAction("timeout", () => client.setReactionTimeout({
+          seconds: seconds === 0 ? null : seconds,
+        }))}
       />
     );
   }

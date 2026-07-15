@@ -7,6 +7,7 @@ import type {
 } from "../room";
 import type { PlayerProjection } from "../game/engine";
 import type { GameCommand } from "./game-session";
+import type { ReactionTimerSnapshot } from "./reaction-timeout";
 
 export interface TransportError {
   code: string;
@@ -98,6 +99,7 @@ export interface ServerToClientEvents {
   }) => void;
   "room:started": (result: SafeStartRoomResult) => void;
   "game:snapshot": (game: PlayerProjection) => void;
+  "game:reaction-timer": (timer: ReactionTimerSnapshot | null) => void;
 }
 
 export interface InterServerEvents {}

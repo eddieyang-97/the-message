@@ -19,3 +19,9 @@ export {
   GameSessionService,
   type GameCommand,
 } from "./game-session";
+export {
+  ReactionTimeoutScheduler,
+  type ReactionTimerClock,
+  type ReactionTimerSnapshot,
+  type ReactionTimeoutSchedulerOptions,
+} from "./reaction-timeout";
