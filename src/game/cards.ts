@@ -64,6 +64,8 @@ export interface PhysicalCard {
   transmission: TransmissionMethod;
   /** true 表示牌面带方向圈，发送时选择顺时针或逆时针。 */
   circle: boolean;
+  /** 实体牌是否印有“不可烧毁”标记；逐牌审计值，运行时不得按牌族推断。 */
+  unburnable: boolean;
   variant?: CardVariant;
 }
 
@@ -76,6 +78,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "文本",
     circle: true,
+    unburnable: false,
     variant: {
       kind: "publicTextBlack",
       mandatoryDrawFaction: "特工"
@@ -89,6 +92,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "probeIdentity",
       mapping: {
@@ -105,7 +109,8 @@ export const PHYSICAL_DECK = [
     name: "破译",
     color: "蓝",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p1-04",
@@ -114,7 +119,8 @@ export const PHYSICAL_DECK = [
     name: "烧毁",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p1-05",
@@ -123,7 +129,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "红",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p1-06",
@@ -132,7 +139,8 @@ export const PHYSICAL_DECK = [
     name: "截获",
     color: "蓝",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p1-07",
@@ -141,7 +149,8 @@ export const PHYSICAL_DECK = [
     name: "截获",
     color: "红",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p1-08",
@@ -151,6 +160,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "文本",
     circle: true,
+    unburnable: false,
     variant: {
       kind: "publicTextBlack",
       mandatoryDrawFaction: "军情"
@@ -164,6 +174,7 @@ export const PHYSICAL_DECK = [
     color: "蓝",
     transmission: "文本",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "publicTextColor"
     }
@@ -175,7 +186,8 @@ export const PHYSICAL_DECK = [
     name: "掉包",
     color: "蓝",
     transmission: "文本",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p1-11",
@@ -184,7 +196,8 @@ export const PHYSICAL_DECK = [
     name: "离间",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p1-12",
@@ -194,6 +207,7 @@ export const PHYSICAL_DECK = [
     color: "蓝",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -210,7 +224,8 @@ export const PHYSICAL_DECK = [
     name: "调虎离山",
     color: "红",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-02",
@@ -219,7 +234,8 @@ export const PHYSICAL_DECK = [
     name: "掉包",
     color: "蓝",
     transmission: "文本",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p2-03",
@@ -229,6 +245,7 @@ export const PHYSICAL_DECK = [
     color: "红",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -245,7 +262,8 @@ export const PHYSICAL_DECK = [
     name: "调虎离山",
     color: "蓝",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-05",
@@ -254,7 +272,8 @@ export const PHYSICAL_DECK = [
     name: "截获",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-06",
@@ -263,7 +282,8 @@ export const PHYSICAL_DECK = [
     name: "危险情报",
     color: "黑",
     transmission: "任意",
-    circle: true
+    circle: true,
+    unburnable: true,
   },
   {
     id: "p2-07",
@@ -272,7 +292,8 @@ export const PHYSICAL_DECK = [
     name: "截获",
     color: "红",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-08",
@@ -281,7 +302,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "红",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-09",
@@ -290,7 +312,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "蓝",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-10",
@@ -299,7 +322,8 @@ export const PHYSICAL_DECK = [
     name: "识破",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-11",
@@ -309,6 +333,7 @@ export const PHYSICAL_DECK = [
     color: "红",
     transmission: "文本",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "publicTextColor"
     }
@@ -321,6 +346,7 @@ export const PHYSICAL_DECK = [
     color: "红",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -337,7 +363,8 @@ export const PHYSICAL_DECK = [
     name: "转移",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p2-14",
@@ -346,7 +373,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "黑",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p2-15",
@@ -355,7 +383,8 @@ export const PHYSICAL_DECK = [
     name: "离间",
     color: "蓝",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-01",
@@ -364,7 +393,8 @@ export const PHYSICAL_DECK = [
     name: "危险情报",
     color: "黑",
     transmission: "任意",
-    circle: true
+    circle: true,
+    unburnable: true,
   },
   {
     id: "p3-02",
@@ -373,7 +403,8 @@ export const PHYSICAL_DECK = [
     name: "识破",
     color: "红",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-03",
@@ -382,7 +413,8 @@ export const PHYSICAL_DECK = [
     name: "烧毁",
     color: "蓝",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-04",
@@ -392,6 +424,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "密电",
     circle: true,
+    unburnable: false,
     variant: {
       kind: "probeDrawDiscard",
       drawFaction: "军情"
@@ -404,7 +437,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: true,
   },
   {
     id: "p3-06",
@@ -413,7 +447,8 @@ export const PHYSICAL_DECK = [
     name: "转移",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-07",
@@ -423,6 +458,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "密电",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "probeDrawDiscard",
       drawFaction: "潜伏"
@@ -436,6 +472,7 @@ export const PHYSICAL_DECK = [
     color: "红",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -452,7 +489,8 @@ export const PHYSICAL_DECK = [
     name: "危险情报",
     color: "黑",
     transmission: "任意",
-    circle: false
+    circle: false,
+    unburnable: true,
   },
   {
     id: "p3-10",
@@ -461,7 +499,8 @@ export const PHYSICAL_DECK = [
     name: "调虎离山",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-11",
@@ -470,7 +509,8 @@ export const PHYSICAL_DECK = [
     name: "烧毁",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-12",
@@ -479,7 +519,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "蓝",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-13",
@@ -488,7 +529,8 @@ export const PHYSICAL_DECK = [
     name: "烧毁",
     color: "红",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-14",
@@ -497,7 +539,8 @@ export const PHYSICAL_DECK = [
     name: "烧毁",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p3-15",
@@ -507,6 +550,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "密电",
     circle: true,
+    unburnable: false,
     variant: {
       kind: "probeDrawDiscard",
       drawFaction: "特工"
@@ -520,6 +564,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -537,6 +582,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "probeIdentity",
       mapping: {
@@ -554,6 +600,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "密电",
     circle: true,
+    unburnable: false,
     variant: {
       kind: "probeDrawDiscard",
       drawFaction: "潜伏"
@@ -567,6 +614,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "文本",
     circle: true,
+    unburnable: false,
     variant: {
       kind: "publicTextBlack",
       mandatoryDrawFaction: "潜伏"
@@ -580,6 +628,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -597,6 +646,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "密电",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "probeDrawDiscard",
       drawFaction: "特工"
@@ -609,7 +659,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "蓝",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p4-08",
@@ -619,6 +670,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "密电",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "probeDrawDiscard",
       drawFaction: "军情"
@@ -631,7 +683,8 @@ export const PHYSICAL_DECK = [
     name: "识破",
     color: "蓝",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p4-10",
@@ -640,7 +693,8 @@ export const PHYSICAL_DECK = [
     name: "破译",
     color: "黑",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p4-11",
@@ -649,7 +703,8 @@ export const PHYSICAL_DECK = [
     name: "截获",
     color: "蓝",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p4-12",
@@ -658,7 +713,8 @@ export const PHYSICAL_DECK = [
     name: "增援",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p4-13",
@@ -667,7 +723,8 @@ export const PHYSICAL_DECK = [
     name: "破译",
     color: "蓝",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p4-14",
@@ -676,7 +733,8 @@ export const PHYSICAL_DECK = [
     name: "机密文件",
     color: "红蓝",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p4-15",
@@ -685,7 +743,8 @@ export const PHYSICAL_DECK = [
     name: "危险情报",
     color: "黑",
     transmission: "任意",
-    circle: true
+    circle: true,
+    unburnable: true,
   },
   {
     id: "p5-01",
@@ -694,7 +753,8 @@ export const PHYSICAL_DECK = [
     name: "离间",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p5-02",
@@ -703,7 +763,8 @@ export const PHYSICAL_DECK = [
     name: "转移",
     color: "蓝",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p5-03",
@@ -713,6 +774,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "probeIdentity",
       mapping: {
@@ -729,7 +791,8 @@ export const PHYSICAL_DECK = [
     name: "调虎离山",
     color: "蓝",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p5-05",
@@ -738,7 +801,8 @@ export const PHYSICAL_DECK = [
     name: "调虎离山",
     color: "红",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p5-06",
@@ -747,7 +811,8 @@ export const PHYSICAL_DECK = [
     name: "识破",
     color: "红",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p5-07",
@@ -756,7 +821,8 @@ export const PHYSICAL_DECK = [
     name: "掉包",
     color: "红",
     transmission: "文本",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p5-08",
@@ -765,7 +831,8 @@ export const PHYSICAL_DECK = [
     name: "离间",
     color: "黑",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p5-09",
@@ -775,6 +842,7 @@ export const PHYSICAL_DECK = [
     color: "蓝",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -791,7 +859,8 @@ export const PHYSICAL_DECK = [
     name: "调虎离山",
     color: "黑",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p5-11",
@@ -800,7 +869,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p5-12",
@@ -809,7 +879,8 @@ export const PHYSICAL_DECK = [
     name: "破译",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p5-13",
@@ -818,7 +889,8 @@ export const PHYSICAL_DECK = [
     name: "危险情报",
     color: "黑",
     transmission: "任意",
-    circle: false
+    circle: false,
+    unburnable: true,
   },
   {
     id: "p5-14",
@@ -827,7 +899,8 @@ export const PHYSICAL_DECK = [
     name: "增援",
     color: "蓝",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p5-15",
@@ -836,7 +909,8 @@ export const PHYSICAL_DECK = [
     name: "机密文件",
     color: "红蓝",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p6-01",
@@ -845,7 +919,8 @@ export const PHYSICAL_DECK = [
     name: "识破",
     color: "蓝",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p6-02",
@@ -854,7 +929,8 @@ export const PHYSICAL_DECK = [
     name: "破译",
     color: "红",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p6-03",
@@ -863,7 +939,8 @@ export const PHYSICAL_DECK = [
     name: "截获",
     color: "黑",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p6-04",
@@ -872,7 +949,8 @@ export const PHYSICAL_DECK = [
     name: "破译",
     color: "红",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p6-05",
@@ -881,7 +959,8 @@ export const PHYSICAL_DECK = [
     name: "掉包",
     color: "黑",
     transmission: "文本",
-    circle: false
+    circle: false,
+    unburnable: true,
   },
   {
     id: "p6-06",
@@ -890,7 +969,8 @@ export const PHYSICAL_DECK = [
     name: "增援",
     color: "红",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p6-07",
@@ -899,7 +979,8 @@ export const PHYSICAL_DECK = [
     name: "识破",
     color: "黑",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p6-08",
@@ -908,7 +989,8 @@ export const PHYSICAL_DECK = [
     name: "机密文件",
     color: "红蓝",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p6-09",
@@ -918,6 +1000,7 @@ export const PHYSICAL_DECK = [
     color: "黑",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -934,7 +1017,8 @@ export const PHYSICAL_DECK = [
     name: "掉包",
     color: "红",
     transmission: "文本",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p6-11",
@@ -944,6 +1028,7 @@ export const PHYSICAL_DECK = [
     color: "蓝",
     transmission: "直达",
     circle: false,
+    unburnable: false,
     variant: {
       kind: "secretOrder",
       mapping: {
@@ -960,7 +1045,8 @@ export const PHYSICAL_DECK = [
     name: "离间",
     color: "红",
     transmission: "直达",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p6-13",
@@ -969,7 +1055,8 @@ export const PHYSICAL_DECK = [
     name: "转移",
     color: "黑",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   },
   {
     id: "p6-14",
@@ -978,7 +1065,8 @@ export const PHYSICAL_DECK = [
     name: "锁定",
     color: "红",
     transmission: "密电",
-    circle: true
+    circle: true,
+    unburnable: false,
   },
   {
     id: "p6-15",
@@ -987,7 +1075,8 @@ export const PHYSICAL_DECK = [
     name: "转移",
     color: "红",
     transmission: "密电",
-    circle: false
+    circle: false,
+    unburnable: false,
   }
 ] as const satisfies readonly PhysicalCard[];
 

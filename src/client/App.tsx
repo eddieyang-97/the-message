@@ -81,6 +81,10 @@ export function App() {
     saveCredentials(entry.room.code, nextCredentials);
     setCredentials(nextCredentials);
     setRoom(entry.room);
+    if (entry.room.phase === "lobby") {
+      setGame(undefined);
+      setReactionTimer(null);
+    }
     setInvite({ kind: "valid", roomCode: entry.room.code });
     window.history.replaceState(null, "", `/${entry.room.code}`);
   }, []);
@@ -107,6 +111,8 @@ export function App() {
     if (room) clearCredentials(room.code);
     setRoom(undefined);
     setCredentials(undefined);
+    setGame(undefined);
+    setReactionTimer(null);
     setInvite({ kind: "none" });
     window.history.replaceState(null, "", "/");
     setErrorMessage(message ?? "你已被移出房间");
@@ -157,6 +163,8 @@ export function App() {
   const goHome = useCallback(() => {
     setInvite({ kind: "none" });
     setErrorMessage(undefined);
+    setGame(undefined);
+    setReactionTimer(null);
     window.history.replaceState(null, "", "/");
   }, []);
 
@@ -189,6 +197,9 @@ export function App() {
           setGame(updated);
         })}
         projection={game}
+        playerDisplayNames={Object.fromEntries(
+          room.players.map((player) => [player.id, player.displayName]),
+        )}
         reactionTimer={reactionTimer}
         reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
         roomAuditLog={room.publicAuditLog}

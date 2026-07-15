@@ -82,7 +82,11 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
   if (options.staticDirectory) {
     const staticDirectory = resolve(options.staticDirectory);
     app.use(express.static(staticDirectory));
-    app.get(/^(?!\/api(?:\/|$)|\/socket\.io(?:\/|$)).*/, (_request, response) => {
+    app.get(/^(?!\/api(?:\/|$)|\/socket\.io(?:\/|$)).*/, (request, response) => {
+      if (!request.accepts("html")) {
+        response.sendStatus(404);
+        return;
+      }
       response.sendFile(resolve(staticDirectory, "index.html"));
     });
   }

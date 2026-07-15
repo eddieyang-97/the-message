@@ -379,6 +379,7 @@ The new target cannot be the original target.
 - May be played during any open action or reaction window in any phase.
 - Targets only already accepted black intelligence in front of a living player.
 - The targeted black intelligence must not have the printed “不可烧毁” mark.
+- Authoritative physical-card mapping supplied by the owner: every black 掉包, every black 直达 锁定, and every 危险情报 is marked 不可烧毁. The manifest stores this as an explicit per-card property; runtime rules must not infer it from card family, color, or transmission method.
 - It cannot target intelligence in front of a dead player.
 - It cannot target red, blue, or red-blue intelligence, including 机密文件.
 - Card eligibility is determined by the physical card's color and printed mark, not merely by its card family.

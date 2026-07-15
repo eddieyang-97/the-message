@@ -7,9 +7,11 @@ import { REACTION_TIMEOUT_OPTIONS, type ReactionTimeoutSeconds } from "./lobby-t
 import "./game-table.css";
 
 export type ProjectedLegalAction = PlayerProjection["legalActions"][number];
+type BurnCommand = Extract<GameCommand, { type: "PLAY_BURN" }>;
 
 export interface GameTableProps {
   projection: PlayerProjection;
+  playerDisplayNames?: Readonly<Record<string, string>>;
   connected: boolean;
   busy?: boolean;
   errorMessage?: string;
@@ -65,6 +67,7 @@ const ACTION_LABELS: Record<string, string> = {
   PLAY_INTERCEPT: "截获",
   PLAY_REINFORCEMENT: "增援",
   PLAY_CONFIDENTIAL_FILE: "机密文件",
+  PLAY_BURN: "烧毁",
   PLAY_PROBE: "试探",
   CHOOSE_PROBE_IDENTITY: "选择试探方式",
   CHOOSE_PROBE_DISCARD: "选择弃牌",
@@ -109,12 +112,28 @@ function actionCardId(action: ProjectedLegalAction): string | undefined {
 }
 
 function actionTargetId(action: ProjectedLegalAction): string | undefined {
-  return "targetId" in action ? action.targetId : undefined;
+  if ("targetId" in action) return action.targetId;
+  if ("targetPlayerId" in action && typeof action.targetPlayerId === "string") {
+    return action.targetPlayerId;
+  }
+  return undefined;
 }
 
-function actionDetail(action: ProjectedLegalAction, projection: PlayerProjection): string {
+function actionDetail(
+  action: ProjectedLegalAction,
+  projection: PlayerProjection,
+  playerDisplayNames: Readonly<Record<string, string>>,
+): string {
   const targetId = actionTargetId(action);
-  const target = targetId ? projection.players.find((player) => player.id === targetId)?.id : undefined;
+  const target = targetId && projection.players.some((player) => player.id === targetId)
+    ? (playerDisplayNames[targetId] ?? targetId)
+    : undefined;
+  if (action.type === "PLAY_BURN") {
+    const targetCard = projection.players
+      .find((player) => player.id === action.targetPlayerId)
+      ?.intelligence.find((card) => card.id === action.targetIntelligenceCardId);
+    return `烧毁 → ${playerDisplayNames[action.targetPlayerId] ?? action.targetPlayerId} 的${targetCard ? `「${targetCard.name}」` : "情报"}`;
+  }
   if (target) return `${ACTION_LABELS[action.type] ?? action.type} → ${target}`;
   if (action.type === "CHOOSE_PUBLIC_TEXT_EFFECT") {
     return action.choice === "drawOne" ? "摸一张牌" : action.choice === "drawTwo" ? "摸两张牌" : "弃置一张手牌";
@@ -154,6 +173,7 @@ function mergeAuditLogs(
 
 export function GameTable({
   projection,
+  playerDisplayNames = {},
   connected,
   busy = false,
   errorMessage,
@@ -172,17 +192,23 @@ export function GameTable({
   const actions = projection.legalActions;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
-  const targetIds = new Set(selectedActions.map(actionTargetId).filter((id): id is string => Boolean(id)));
+  const targetIds = new Set(selectedActions.filter((action) => action.type !== "PLAY_BURN").map(actionTargetId).filter((id): id is string => Boolean(id)));
   const immediateActions = actions.filter((action) => !actionCardId(action));
   const selectedImmediateActions = selectedActions.filter((action) => !actionTargetId(action));
   const inspectedHand = projection.activeFunctionAction?.inspectedHand ?? [];
+  const selectedBurnActions = selectedCardId
+    ? (actions as readonly GameCommand[]).filter(
+        (action): action is BurnCommand =>
+          action.type === "PLAY_BURN" && action.cardId === selectedCardId,
+      )
+    : [];
   const selectedCard = projection.own.hand.find((card) => card.id === selectedCardId);
   const forcedChoice = actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT");
   const isResolvedPreTransmissionSelection =
     projection.phase === "preTransmission" &&
     projection.pendingSecretOrder?.stage === "selection";
   const canStartTransmission =
-    (projection.phase === "initialized" || isResolvedPreTransmissionSelection) &&
+    isResolvedPreTransmissionSelection &&
     projection.activePlayerId === projection.own.id &&
     !projection.transmission &&
     !projection.reactionWindow &&
@@ -254,13 +280,25 @@ export function GameTable({
                   style={{ "--player-index": index, "--player-count": projection.seatOrder.length } as React.CSSProperties}
                 >
                   <button disabled={!isTarget || busy} onClick={() => chooseTarget(id)} type="button">
-                    <strong>{id}{isOwn ? "（你）" : ""}</strong>
+                  <strong>{playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}</strong>
                     <span>{player.alive ? `${player.handCount} 张手牌` : "已死亡"}</span>
                     {player.faction && <span className="faction-badge">{player.faction}</span>}
                     {isTarget && <em>选择为目标</em>}
                   </button>
-                  <div className="intel-row" aria-label={`${id} 的情报`}>
-                    {player.intelligence.map((card) => <CardView card={card} key={card.id} />)}
+                  <div className="intel-row" aria-label={`${playerDisplayNames[id] ?? id} 的情报`}>
+                    {player.intelligence.map((card) => {
+                      const burnAction = selectedBurnActions.find(
+                        (action) => action.targetPlayerId === id && action.targetIntelligenceCardId === card.id,
+                      );
+                      return (
+                        <CardView
+                          card={card}
+                          key={card.id}
+                          playable={Boolean(burnAction)}
+                          onClick={burnAction && !busy && connected ? () => onCommand(burnAction) : undefined}
+                        />
+                      );
+                    })}
                     {player.intelligence.length === 0 && <span>暂无情报</span>}
                   </div>
                 </article>
@@ -274,11 +312,15 @@ export function GameTable({
                   {projection.transmission.card
                     ? <CardView card={projection.transmission.card} />
                     : <div className="hidden-card">未公开情报</div>}
-                  <strong>{projection.transmission.senderId} → {projection.transmission.intendedRecipientId}</strong>
+                  <strong>
+                    {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
+                    {" → "}
+                    {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}
+                  </strong>
                   <span>{projection.transmission.locked ? "已锁定" : projection.transmission.receiptStage}</span>
                 </>
               ) : (
-                <><p>当前回合</p><strong>{projection.activePlayerId}</strong></>
+                <><p>当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
               )}
             </section>
           </div>
@@ -294,7 +336,7 @@ export function GameTable({
             <div className="prompt-actions">
               {[...immediateActions, ...selectedImmediateActions].map((action, index) => (
                 <button disabled={busy || !connected} key={`${action.type}-${index}`} onClick={() => onCommand(action)} type="button">
-                  {actionDetail(action, projection)}
+                  {actionDetail(action, projection, playerDisplayNames)}
                 </button>
               ))}
             </div>
@@ -339,7 +381,7 @@ export function GameTable({
                   </select>
                 )}
                 {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
-                  <button disabled={busy || !connected} key={player.id} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">发给 {player.id}</button>
+                  <button disabled={busy || !connected} key={player.id} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">发给 {playerDisplayNames[player.id] ?? player.id}</button>
                 )) : (
                   <button disabled={busy || !connected} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: selectedCard.circle ? direction : undefined })} type="button">开始传递</button>
                 )}

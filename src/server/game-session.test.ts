@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  PHYSICAL_DECK,
+  type PhysicalCardId,
+} from "../game/cards";
+import type { GameState } from "../game/engine";
 import { GameSessionError, GameSessionService } from "./game-session";
 
 const players = ["甲", "乙", "丙", "丁", "戊"];
@@ -83,4 +88,48 @@ describe("GameSessionService", () => {
       "该玩家已经死亡",
     );
   });
+
+  it("dispatches PLAY_BURN with actor-bound owner and intelligence targets", () => {
+    const sessions = new GameSessionService();
+    const state = sessions.create("ABCDEF", players, 42);
+    const actorId = state.activePlayerId;
+    const otherActorId = players.find((id) => id !== actorId)!;
+    const targetPlayerId = players.find((id) => id !== actorId && id !== otherActorId)!;
+    const burnCard = PHYSICAL_DECK.find((card) => card.name === "烧毁")!;
+    const intelligence = PHYSICAL_DECK.find(
+      (card) => card.color === "黑" && !card.unburnable && card.id !== burnCard.id,
+    )!;
+    detachCard(state, burnCard.id);
+    detachCard(state, intelligence.id);
+    state.players[actorId].hand.push(burnCard.id as PhysicalCardId);
+    state.players[targetPlayerId].intelligence.push(
+      intelligence.id as PhysicalCardId,
+    );
+    const command = {
+      type: "PLAY_BURN" as const,
+      cardId: burnCard.id as PhysicalCardId,
+      targetPlayerId,
+      targetIntelligenceCardId: intelligence.id as PhysicalCardId,
+    };
+
+    expect(() => sessions.dispatch("ABCDEF", otherActorId, command)).toThrow(
+      "当前没有可使用烧毁的行动或响应窗口",
+    );
+    const projection = sessions.dispatch("ABCDEF", actorId, command);
+    expect(projection.reactionWindow).toMatchObject({ kind: "burn" });
+    expect(state.burnContexts.at(-1)).toMatchObject({
+      sourcePlayerId: actorId,
+      targetPlayerId,
+      targetIntelligenceCardId: intelligence.id,
+    });
+  });
 });
+
+function detachCard(state: GameState, cardId: string): void {
+  for (const player of Object.values(state.players)) {
+    player.hand = player.hand.filter((id) => id !== cardId);
+    player.intelligence = player.intelligence.filter((id) => id !== cardId);
+  }
+  state.drawPile = state.drawPile.filter((id) => id !== cardId);
+  state.publicDiscard = state.publicDiscard.filter((id) => id !== cardId);
+}

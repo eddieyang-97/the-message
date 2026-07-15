@@ -426,6 +426,7 @@ Only the current intended recipient may privately inspect a 密电 or 直达 int
 
 - May be played during any open action or reaction window in any phase.
 - Targets only accepted black intelligence in front of a living player whose physical card lacks the printed “不可烧毁” mark.
+- Owner-confirmed physical mapping: all black 掉包, black 直达 锁定, and all 危险情报 are marked 不可烧毁. Encode the result explicitly on every physical manifest entry and consult that property at runtime; do not infer burnability from family rules.
 - Cannot target intelligence in front of dead players or any red, blue, or red-blue card.
 - Cannot interrupt the atomic acceptance → death → on-receive effect → victory sequence, so it cannot save a player after their third black intelligence arrives.
 - 识破 may counter it and leaves the target card unchanged. A recorded victory cannot be undone.
@@ -716,7 +717,7 @@ Run `cards.test.ts` as a deck-data gate in CI.
 
 ## 13. Decision status
 
-The deck count, identity, and gameplay metadata audit is finished. The per-card printed `不可烧毁` mark is still missing and must be verified from a physical-card source before implementing 烧毁.
+The deck count, identity, gameplay metadata, and per-card `不可烧毁` mapping audits are finished.
 
 In-game host succession is confirmed: host death or disconnection transfers authority clockwise to the next connected living player, or remains pending with no host until an eligible living player reconnects. Reconnection does not displace an existing successor or automatically restore an old claim, but a prior host remains eligible during a genuinely hostless pending succession.
 
@@ -728,7 +729,7 @@ Keep any future decisions centralized in `docs/rules-decisions.md` and then sync
 
 ## 14. Immediate Codex task
 
-Continue from the playable engine, authoritative Socket.IO session, reaction timer, lobby, game-table UI, and in-game host succession. Next audit the physical `不可烧毁` markings and implement 烧毁, then deploy the production server to obtain a shareable URL.
+Continue from the playable engine, authoritative Socket.IO session, reaction timer, lobby, game-table UI, and in-game host succession. Next implement the confirmed 烧毁 resolver, then deploy the production server to obtain a shareable URL.
 
 Tests are enabled. Commit and push after each major verified milestone.
 

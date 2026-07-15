@@ -1,0 +1,344 @@
+import { describe, expect, it } from "vitest";
+
+import { PHYSICAL_DECK, type PhysicalCardId } from "./cards";
+import {
+  enterTransmissionPhase,
+  initializeGame,
+  passLockOpportunity,
+  passReaction,
+  playBurn,
+  playCounter,
+  playPublicText,
+  projectGameForPlayer,
+  resolveHostImposedDeath,
+  startTransmission,
+  type GameState,
+  type ReactionWindow,
+} from "./engine";
+
+const players = ["甲", "乙", "丙", "丁", "戊"] as const;
+const unburnableIds = [
+  "p2-06",
+  "p3-01",
+  "p3-05",
+  "p3-09",
+  "p4-15",
+  "p5-13",
+  "p6-05",
+] as const satisfies readonly PhysicalCardId[];
+
+function game(seed = 701): GameState {
+  const state = initializeGame(players, seed);
+  state.activePlayerId = "甲";
+  return state;
+}
+
+function findCard(
+  predicate: (card: (typeof PHYSICAL_DECK)[number]) => boolean,
+  excluded: readonly PhysicalCardId[] = [],
+): PhysicalCardId {
+  const card = PHYSICAL_DECK.find(
+    (candidate) => predicate(candidate) && !excluded.includes(candidate.id),
+  );
+  if (!card) throw new Error("找不到测试牌");
+  return card.id;
+}
+
+function inHand(state: GameState, playerId: string, wanted: PhysicalCardId): void {
+  const target = state.players[playerId];
+  const owner = Object.values(state.players).find((player) =>
+    player.hand.includes(wanted),
+  );
+  if (owner) {
+    if (owner.id === playerId) return;
+    const replacement = target.hand[0];
+    target.hand[0] = wanted;
+    owner.hand[owner.hand.indexOf(wanted)] = replacement;
+    return;
+  }
+  const drawIndex = state.drawPile.indexOf(wanted);
+  if (drawIndex < 0) throw new Error("测试牌不在可交换区域");
+  const replacement = target.hand[0];
+  target.hand[0] = wanted;
+  state.drawPile[drawIndex] = replacement;
+}
+
+function acceptedBy(state: GameState, playerId: string, wanted: PhysicalCardId): void {
+  const drawIndex = state.drawPile.indexOf(wanted);
+  if (drawIndex >= 0) state.drawPile.splice(drawIndex, 1);
+  else {
+    const owner = Object.values(state.players).find((player) =>
+      player.hand.includes(wanted),
+    );
+    if (!owner) throw new Error("测试牌不在手牌或牌库中");
+    owner.hand.splice(owner.hand.indexOf(wanted), 1);
+  }
+  state.players[playerId].intelligence.push(wanted);
+}
+
+function passCurrentWindow(state: GameState): void {
+  const kind = state.reactionWindow?.kind;
+  while (state.reactionWindow?.kind === kind) {
+    const window = state.reactionWindow!;
+    passReaction(state, window.responderOrder[window.nextResponderIndex]);
+  }
+}
+
+function ordinaryBlack(excluded: readonly PhysicalCardId[] = []): PhysicalCardId {
+  return findCard(
+    (card) => card.color === "黑" && !card.unburnable && card.name !== "烧毁",
+    excluded,
+  );
+}
+
+describe("烧毁", () => {
+  it("在行动阶段烧毁存活玩家可烧毁的已接收黑色情报", () => {
+    const state = game();
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([burn]);
+    inHand(state, "甲", burn);
+    acceptedBy(state, "乙", intelligence);
+
+    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+      type: "PLAY_BURN",
+      cardId: burn,
+      targetPlayerId: "乙",
+      targetIntelligenceCardId: intelligence,
+    });
+    playBurn(state, "甲", burn, "乙", intelligence);
+    passCurrentWindow(state);
+
+    expect(state.players["乙"].intelligence).not.toContain(intelligence);
+    expect(state.publicDiscard).toEqual(expect.arrayContaining([burn, intelligence]));
+  });
+
+  it.each(unburnableIds)(
+    "拒绝带不可烧毁标记的实体牌 %s",
+    (intelligence) => {
+      const state = game();
+      const burn = findCard((card) => card.name === "烧毁");
+      inHand(state, "甲", burn);
+      acceptedBy(state, "乙", intelligence);
+      expect(() => playBurn(state, "甲", burn, "乙", intelligence)).toThrow(
+        "不可烧毁",
+      );
+    },
+  );
+
+  it("识破恢复烧毁前状态，反识破则重新使烧毁生效", () => {
+    const state = game();
+    const burn = findCard((card) => card.name === "烧毁");
+    const counter1 = findCard((card) => card.name === "识破");
+    const counter2 = findCard((card) => card.name === "识破", [counter1]);
+    const intelligence = ordinaryBlack([burn, counter1, counter2]);
+    inHand(state, "甲", burn);
+    inHand(state, "丙", counter1);
+    inHand(state, "乙", counter2);
+    acceptedBy(state, "乙", intelligence);
+
+    playBurn(state, "甲", burn, "乙", intelligence);
+    const burnFrame = state.burnContexts.at(-1)!.frames.at(-1)!;
+    playCounter(state, "丙", counter1, burnFrame.id);
+    const firstCounter = state.burnContexts.at(-1)!.frames.at(-1)!;
+    playCounter(state, "乙", counter2, firstCounter.id);
+    passCurrentWindow(state);
+
+    expect(state.players["乙"].intelligence).not.toContain(intelligence);
+  });
+
+  it("单次识破使目标情报保持原位", () => {
+    const state = game(702);
+    const burn = findCard((card) => card.name === "烧毁");
+    const counter = findCard((card) => card.name === "识破");
+    const intelligence = ordinaryBlack([burn, counter]);
+    inHand(state, "甲", burn);
+    inHand(state, "丙", counter);
+    acceptedBy(state, "乙", intelligence);
+    playBurn(state, "甲", burn, "乙", intelligence);
+    playCounter(state, "丙", counter, state.burnContexts.at(-1)!.frames[0].id);
+    passCurrentWindow(state);
+    expect(state.players["乙"].intelligence).toContain(intelligence);
+  });
+
+  it("嵌套烧毁结算后精确恢复被暂停的功能牌响应优先级", () => {
+    const state = game(703);
+    const publicText = findCard((card) => card.name === "公开文本");
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([publicText, burn]);
+    inHand(state, "甲", publicText);
+    inHand(state, "丙", burn);
+    acceptedBy(state, "丁", intelligence);
+    playPublicText(state, "甲", publicText, "乙");
+    const suspended: ReactionWindow = structuredClone(state.reactionWindow!);
+
+    playBurn(state, "丙", burn, "丁", intelligence);
+    passCurrentWindow(state);
+
+    expect(state.reactionWindow).toEqual(suspended);
+    expect(state.activeFunctionAction?.kind).toBe("publicText");
+  });
+
+  it("在秘密下达窗口中烧毁后恢复原响应位置", () => {
+    const state = game(707);
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([burn]);
+    inHand(state, "乙", burn);
+    acceptedBy(state, "丙", intelligence);
+    enterTransmissionPhase(state, "甲");
+    const suspended = structuredClone(state.reactionWindow!);
+
+    playBurn(state, "乙", burn, "丙", intelligence);
+    passCurrentWindow(state);
+
+    expect(state.reactionWindow).toEqual(suspended);
+    expect(state.pendingSecretOrder?.stage).toBe("offering");
+  });
+
+  it("在情报响应窗口中烧毁后恢复原响应位置", () => {
+    const state = game(708);
+    const transmitted = findCard(
+      (card) => card.transmission === "直达" && card.name !== "烧毁",
+    );
+    const burn = findCard((card) => card.name === "烧毁", [transmitted]);
+    const intelligence = ordinaryBlack([transmitted, burn]);
+    inHand(state, "甲", transmitted);
+    inHand(state, "丙", burn);
+    acceptedBy(state, "丁", intelligence);
+    enterTransmissionPhase(state, "甲");
+    passCurrentWindow(state);
+    startTransmission(state, "甲", transmitted, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    const suspended = structuredClone(state.reactionWindow!);
+
+    playBurn(state, "丙", burn, "丁", intelligence);
+    passCurrentWindow(state);
+
+    expect(state.reactionWindow).toEqual(suspended);
+    expect(state.transmission?.receiptStage).toBe("reactions");
+  });
+
+  it("允许嵌套烧毁同一情报，外层随后安全空结算", () => {
+    const state = game(704);
+    const burn1 = findCard((card) => card.name === "烧毁");
+    const burn2 = findCard((card) => card.name === "烧毁", [burn1]);
+    const intelligence = ordinaryBlack([burn1, burn2]);
+    inHand(state, "甲", burn1);
+    inHand(state, "丙", burn2);
+    acceptedBy(state, "乙", intelligence);
+
+    playBurn(state, "甲", burn1, "乙", intelligence);
+    const outer = structuredClone(state.reactionWindow!);
+    playBurn(state, "丙", burn2, "乙", intelligence);
+    while (state.burnContexts.length === 2) {
+      const window = state.reactionWindow!;
+      passReaction(state, window.responderOrder[window.nextResponderIndex]);
+    }
+    expect(state.reactionWindow).toEqual(outer);
+    passCurrentWindow(state);
+
+    expect(state.players["乙"].intelligence).not.toContain(intelligence);
+    expect(state.publicDiscard.filter((id) => id === intelligence)).toHaveLength(1);
+    expect(state.burnContexts).toHaveLength(0);
+  });
+
+  it("强制死亡会修剪烧毁及其暂停窗口中的响应顺序", () => {
+    const state = game(705);
+    const publicText = findCard((card) => card.name === "公开文本");
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([publicText, burn]);
+    inHand(state, "甲", publicText);
+    inHand(state, "丙", burn);
+    acceptedBy(state, "丁", intelligence);
+    playPublicText(state, "甲", publicText, "乙");
+    playBurn(state, "丙", burn, "丁", intelligence);
+
+    resolveHostImposedDeath(state, "戊");
+    expect(state.reactionWindow?.responderOrder).not.toContain("戊");
+    passCurrentWindow(state);
+    expect(state.reactionWindow?.kind).toBe("function");
+    expect(state.reactionWindow?.responderOrder).not.toContain("戊");
+    expect(state.players["丁"].intelligence).not.toContain(intelligence);
+  });
+
+  it("烧毁目标玩家在结算前死亡时保留其情报", () => {
+    const state = game(709);
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([burn]);
+    inHand(state, "甲", burn);
+    acceptedBy(state, "乙", intelligence);
+    playBurn(state, "甲", burn, "乙", intelligence);
+
+    resolveHostImposedDeath(state, "乙");
+    passCurrentWindow(state);
+
+    expect(state.players["乙"].intelligence).toContain(intelligence);
+    expect(state.burnContexts).toHaveLength(0);
+  });
+
+  it("死亡使暂停窗口已全部通过时，恢复后自动递归结算而不重开优先级", () => {
+    const state = game(710);
+    const burn1 = findCard((card) => card.name === "烧毁");
+    const burn2 = findCard((card) => card.name === "烧毁", [burn1]);
+    const outerIntelligence = ordinaryBlack([burn1, burn2]);
+    const innerIntelligence = ordinaryBlack([burn1, burn2, outerIntelligence]);
+    inHand(state, "甲", burn1);
+    inHand(state, "乙", burn2);
+    acceptedBy(state, "乙", outerIntelligence);
+    acceptedBy(state, "丙", innerIntelligence);
+    playBurn(state, "甲", burn1, "乙", outerIntelligence);
+
+    for (const responder of ["丙", "丁", "戊", "甲"] as const) {
+      expect(
+        state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex],
+      ).toBe(responder);
+      passReaction(state, responder);
+    }
+    playBurn(state, "乙", burn2, "丙", innerIntelligence);
+    resolveHostImposedDeath(state, "乙");
+    passCurrentWindow(state);
+
+    expect(state.reactionWindow).toBeUndefined();
+    expect(state.burnContexts).toHaveLength(0);
+    expect(state.players["乙"].intelligence).toContain(outerIntelligence);
+    expect(state.players["丙"].intelligence).not.toContain(innerIntelligence);
+  });
+
+  it("死亡清理底层功能牌流程时取消顶层待结算烧毁且不返还牌", () => {
+    const state = game(711);
+    const publicText = findCard((card) => card.name === "公开文本");
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([publicText, burn]);
+    inHand(state, "甲", publicText);
+    inHand(state, "丙", burn);
+    acceptedBy(state, "丁", intelligence);
+    playPublicText(state, "甲", publicText, "乙");
+    playBurn(state, "丙", burn, "丁", intelligence);
+
+    resolveHostImposedDeath(state, "乙");
+
+    expect(state.burnContexts).toHaveLength(0);
+    expect(state.reactionWindow).toBeUndefined();
+    expect(state.activeFunctionAction).toBeUndefined();
+    expect(state.players["丁"].intelligence).toContain(intelligence);
+    expect(state.publicDiscard).toContain(burn);
+  });
+
+  it("强制选择等原子结算阶段不能插入烧毁", () => {
+    const state = game(706);
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([burn]);
+    inHand(state, "甲", burn);
+    acceptedBy(state, "乙", intelligence);
+    state.phase = "resolvingReceipt";
+    state.pendingPublicTextReceipt = {
+      recipientId: "乙",
+      cardId: intelligence,
+      stage: "choice",
+      choices: ["drawOne"],
+    };
+
+    expect(() => playBurn(state, "甲", burn, "乙", intelligence)).toThrow(
+      "当前没有可使用烧毁",
+    );
+  });
+});

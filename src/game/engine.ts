@@ -60,6 +60,7 @@ export interface ReactionWindow {
     | "swap"
     | "lure"
     | "decrypt"
+    | "burn"
     | "function"
     | "secretOrder";
   affectedPlayerId: PlayerId;
@@ -195,6 +196,28 @@ interface SecretOrderFrame {
   snapshot: { countered: boolean };
 }
 
+interface BurnFrame {
+  id: string;
+  sequence: number;
+  kind: "burn" | "counter";
+  sourcePlayerId: PlayerId;
+  sourceCardId: PhysicalCardId;
+  targetPlayerId: PlayerId;
+  targetInteractionId?: string;
+  snapshot: { countered: boolean };
+}
+
+interface BurnContext {
+  sourcePlayerId: PlayerId;
+  sourceCardId: PhysicalCardId;
+  targetPlayerId: PlayerId;
+  targetIntelligenceCardId: PhysicalCardId;
+  countered: boolean;
+  suspendedReactionWindow?: ReactionWindow;
+  suspendedReactionCompleted: boolean;
+  frames: BurnFrame[];
+}
+
 export interface GameState {
   mode: GameMode;
   phase:
@@ -220,6 +243,7 @@ export interface GameState {
   activeFunctionAction?: ActiveFunctionAction;
   activeFunctionStack: ActiveFunctionFrame[];
   secretOrderStack: SecretOrderFrame[];
+  burnContexts: BurnContext[];
   nextInteractionSequence: number;
   randomState: number;
   winner?: WinnerState;
@@ -305,6 +329,12 @@ export interface PlayerProjection {
     | { type: "PLAY_SWAP"; cardId: PhysicalCardId }
     | { type: "PLAY_LURE"; cardId: PhysicalCardId }
     | { type: "PLAY_DECRYPT"; cardId: PhysicalCardId }
+    | {
+        type: "PLAY_BURN";
+        cardId: PhysicalCardId;
+        targetPlayerId: PlayerId;
+        targetIntelligenceCardId: PhysicalCardId;
+      }
     | {
         type: "PLAY_SEPARATION";
         cardId: PhysicalCardId;
@@ -511,6 +541,7 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
     interactionStack: [],
     activeFunctionStack: [],
     secretOrderStack: [],
+    burnContexts: [],
     nextInteractionSequence: 1,
     randomState: (seed ^ 0x9e3779b9) >>> 0,
     auditLog: [
@@ -618,7 +649,7 @@ export function assertGameStateInvariants(state: GameState): void {
       throw new Error("公开文本待处理接收效果无效");
     }
   }
-  if (state.transmission?.pendingTransfer && state.reactionWindow?.kind !== "transfer") {
+  if (state.transmission?.pendingTransfer && !hasReactionKind(state, "transfer")) {
     throw new Error("待处理转移必须拥有转移响应窗口");
   }
   if (
@@ -627,7 +658,7 @@ export function assertGameStateInvariants(state: GameState): void {
   ) {
     throw new Error("转移响应窗口缺少转移互动帧");
   }
-  if (state.transmission?.pendingSwap && state.reactionWindow?.kind !== "swap") {
+  if (state.transmission?.pendingSwap && !hasReactionKind(state, "swap")) {
     throw new Error("待处理掉包必须拥有掉包响应窗口");
   }
   if (
@@ -636,7 +667,7 @@ export function assertGameStateInvariants(state: GameState): void {
   ) {
     throw new Error("掉包响应窗口缺少掉包互动帧");
   }
-  if (state.transmission?.pendingLure && state.reactionWindow?.kind !== "lure") {
+  if (state.transmission?.pendingLure && !hasReactionKind(state, "lure")) {
     throw new Error("待处理调虎离山必须拥有对应响应窗口");
   }
   if (
@@ -655,6 +686,10 @@ export function assertGameStateInvariants(state: GameState): void {
       !(
         state.phase === "preTransmission" &&
         state.reactionWindow.kind === "secretOrder"
+      ) &&
+      !(
+        state.reactionWindow.kind === "burn" &&
+        ["initialized", "preTransmission", "transmitting"].includes(state.phase)
       )
     ) {
       throw new Error("响应窗口与当前阶段不一致");
@@ -684,7 +719,15 @@ export function assertGameStateInvariants(state: GameState): void {
     ) {
       throw new Error("响应窗口的当前响应位置无效");
     }
-    if (state.reactionWindow.kind === "secretOrder") {
+    if (state.reactionWindow.kind === "burn") {
+      const context = state.burnContexts.at(-1);
+      if (
+        !context ||
+        state.reactionWindow.affectedPlayerId !== context.frames.at(-1)?.targetPlayerId
+      ) {
+        throw new Error("烧毁响应窗口与当前烧毁行动不一致");
+      }
+    } else if (state.reactionWindow.kind === "secretOrder") {
       if (
         !state.pendingSecretOrder ||
         (state.reactionWindow.affectedPlayerId !== state.activePlayerId &&
@@ -754,6 +797,42 @@ export function assertGameStateInvariants(state: GameState): void {
       throw new Error("识破必须指向更早的互动帧");
     }
   }
+  for (const context of state.burnContexts) {
+    const targetCard = cardById(context.targetIntelligenceCardId);
+    if (
+      cardById(context.sourceCardId).name !== "烧毁" ||
+      !state.publicDiscard.includes(context.sourceCardId) ||
+      !state.players[context.sourcePlayerId] ||
+      !state.players[context.targetPlayerId] ||
+      targetCard.color !== "黑" ||
+      targetCard.unburnable ||
+      context.frames.length === 0 ||
+      context.frames[0].kind !== "burn"
+    ) {
+      throw new Error("烧毁行动上下文无效");
+    }
+    for (const [index, frame] of context.frames.entries()) {
+      if (
+        cardById(frame.sourceCardId).name !==
+          (frame.kind === "burn" ? "烧毁" : "识破") ||
+        !state.publicDiscard.includes(frame.sourceCardId) ||
+        frame.id !== `interaction-${frame.sequence}` ||
+        frame.sequence >= state.nextInteractionSequence ||
+        !state.players[frame.sourcePlayerId] ||
+        !state.players[frame.targetPlayerId] ||
+        (frame.kind === "counter" &&
+          (!frame.targetInteractionId ||
+            !context.frames
+              .slice(0, index)
+              .some((candidate) => candidate.id === frame.targetInteractionId)))
+      ) {
+        throw new Error("烧毁互动栈包含无效帧");
+      }
+    }
+  }
+  if ((state.reactionWindow?.kind === "burn") !== (state.burnContexts.length > 0)) {
+    throw new Error("烧毁响应窗口与烧毁上下文栈不一致");
+  }
   if (
     !Number.isInteger(state.nextInteractionSequence) ||
     state.nextInteractionSequence < 1
@@ -814,11 +893,11 @@ export function assertGameStateInvariants(state: GameState): void {
       throw new Error("待处理功能牌行动无效");
     }
     if (
-      action.stage === "reactions" && state.reactionWindow?.kind !== "function"
+      action.stage === "reactions" && !hasReactionKind(state, "function")
     ) {
       throw new Error("功能牌响应阶段必须拥有响应窗口");
     }
-    if (action.stage !== "reactions" && state.reactionWindow) {
+    if (action.stage !== "reactions" && state.reactionWindow && state.reactionWindow.kind !== "burn") {
       throw new Error("功能牌选择阶段不能保留响应窗口");
     }
   }
@@ -990,6 +1069,21 @@ function reactionOrderAfterTarget(
   return ordered;
 }
 
+function cloneReactionWindow(window: ReactionWindow | undefined): ReactionWindow | undefined {
+  return window
+    ? { ...window, responderOrder: [...window.responderOrder] }
+    : undefined;
+}
+
+function hasReactionKind(state: GameState, kind: ReactionWindow["kind"]): boolean {
+  return (
+    state.reactionWindow?.kind === kind ||
+    state.burnContexts.some(
+      (context) => context.suspendedReactionWindow?.kind === kind,
+    )
+  );
+}
+
 function openIntelligenceReactionWindow(
   state: GameState,
   affectedPlayerId: PlayerId,
@@ -1146,6 +1240,7 @@ function clearUnresolvedTurnState(state: GameState, discardTransmission: boolean
   state.activeFunctionAction = undefined;
   state.activeFunctionStack = [];
   state.secretOrderStack = [];
+  state.burnContexts = [];
 }
 
 function soleSurvivorWinner(state: GameState): WinnerState | undefined {
@@ -1175,6 +1270,35 @@ function rebuildReactionPriorityAfterDeath(
   if (nextIndex === rebuilt.length) finishPassedReactionWindow(state, window);
 }
 
+function pruneSuspendedBurnPrioritiesAfterDeath(
+  state: GameState,
+  deadPlayerId: PlayerId,
+): void {
+  for (const context of state.burnContexts) {
+    const window = context.suspendedReactionWindow;
+    if (!window) continue;
+    const passed = new Set(window.responderOrder.slice(0, window.nextResponderIndex));
+    passed.delete(deadPlayerId);
+    window.responderOrder = reactionOrderAfterTarget(state, window.affectedPlayerId);
+    let nextIndex = 0;
+    while (nextIndex < window.responderOrder.length && passed.has(window.responderOrder[nextIndex])) {
+      nextIndex += 1;
+    }
+    context.suspendedReactionCompleted =
+      nextIndex === window.responderOrder.length;
+    // Keep the snapshot structurally valid while it is suspended. Completed
+    // snapshots are settled immediately on restoration and never re-offered.
+    window.nextResponderIndex = context.suspendedReactionCompleted ? 0 : nextIndex;
+  }
+}
+
+function cancelPendingBurnsForDeathCleanup(state: GameState): void {
+  if (state.burnContexts.length === 0) return;
+  state.burnContexts = [];
+  if (state.reactionWindow?.kind === "burn") state.reactionWindow = undefined;
+  state.auditLog.push("死亡结算改变当前流程，所有待结算烧毁行动取消（已使用牌不返还）");
+}
+
 /**
  * Applies the confirmed host-imposed death policy as one deterministic engine
  * transition. The room layer is responsible for authorizing the host and
@@ -1202,6 +1326,7 @@ export function resolveHostImposedDeath(
 
   player.alive = false;
   player.factionRevealed = true;
+  pruneSuspendedBurnPrioritiesAfterDeath(state, playerId);
   state.auditLog.push(`${playerId}被房主判定死亡，阵营公开为${player.faction}`);
 
   const soleWinner = soleSurvivorWinner(state);
@@ -1225,6 +1350,7 @@ export function resolveHostImposedDeath(
   }
 
   if (wasIntendedRecipient && state.transmission) {
+    cancelPendingBurnsForDeathCleanup(state);
     if (wasLockedOrIntercepted) {
       clearUnresolvedTurnState(state, true);
       state.auditLog.push(`${playerId}死亡，锁定或截获中的待传情报被公开弃置`);
@@ -1253,6 +1379,7 @@ export function resolveHostImposedDeath(
   }
 
   if (wasPublicTextChoiceTarget) {
+    cancelPendingBurnsForDeathCleanup(state);
     state.pendingPublicTextReceipt = undefined;
     state.auditLog.push(`${playerId}死亡，未完成的公开文本接收效果取消`);
     state.auditLog.push(`${state.activePlayerId}的回合结束`);
@@ -1262,6 +1389,7 @@ export function resolveHostImposedDeath(
   }
 
   if (wasFunctionTarget) {
+    cancelPendingBurnsForDeathCleanup(state);
     state.activeFunctionAction = undefined;
     state.activeFunctionStack = [];
     state.reactionWindow = undefined;
@@ -1271,6 +1399,7 @@ export function resolveHostImposedDeath(
   }
 
   if (wasSecretOrderSource && state.pendingSecretOrder) {
+    cancelPendingBurnsForDeathCleanup(state);
     state.pendingSecretOrder = {
       stage: "selection",
       targetPlayerId: state.activePlayerId,
@@ -2467,7 +2596,9 @@ export function passReaction(state: GameState, actorId: PlayerId): void {
 }
 
 function finishPassedReactionWindow(state: GameState, window: ReactionWindow): void {
-    if (window.kind === "secretOrder") {
+    if (window.kind === "burn") {
+      resolveBurnContext(state);
+    } else if (window.kind === "secretOrder") {
       const pending = state.pendingSecretOrder;
       if (!pending) throw new Error("秘密下达窗口状态无效");
       pending.stage = "selection";
@@ -2540,6 +2671,161 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
         assertGameStateInvariants(state);
       }
     }
+}
+
+function isOpenBurnWindow(state: GameState, actorId: PlayerId): boolean {
+  const currentResponder =
+    state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex];
+  if (state.reactionWindow) return currentResponder === actorId;
+  return (
+    state.phase === "initialized" &&
+    state.activePlayerId === actorId &&
+    !state.activeFunctionAction &&
+    !state.pendingPublicTextReceipt &&
+    !state.transmission
+  );
+}
+
+/** Plays 烧毁 into the current open action/reaction window. */
+export function playBurn(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  targetPlayerId: PlayerId,
+  targetIntelligenceCardId: PhysicalCardId,
+): void {
+  if (!isOpenBurnWindow(state, actorId)) {
+    throw new Error("当前没有可使用烧毁的行动或响应窗口");
+  }
+  const actor = state.players[actorId];
+  const cardIndex = actor?.hand.indexOf(cardId) ?? -1;
+  if (!actor?.alive || cardIndex < 0 || cardById(cardId).name !== "烧毁") {
+    throw new Error("必须使用自己手中的烧毁牌");
+  }
+  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+    throw new Error("当前玩家必须至少保留一张手牌用于传递");
+  }
+  const target = state.players[targetPlayerId];
+  if (!target?.alive) throw new Error("烧毁只能以存活玩家的情报为目标");
+  if (!target.intelligence.includes(targetIntelligenceCardId)) {
+    throw new Error("烧毁目标必须是该玩家已接收的情报");
+  }
+  const intelligence = cardById(targetIntelligenceCardId);
+  if (intelligence.color !== "黑") {
+    throw new Error("烧毁只能以黑色情报为目标");
+  }
+  if (intelligence.unburnable) throw new Error("该实体牌具有不可烧毁标记");
+
+  actor.hand.splice(cardIndex, 1);
+  state.publicDiscard.push(cardId);
+  const sequence = state.nextInteractionSequence++;
+  const frame: BurnFrame = {
+    id: `interaction-${sequence}`,
+    sequence,
+    kind: "burn",
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    targetPlayerId,
+    snapshot: { countered: true },
+  };
+  state.burnContexts.push({
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    targetPlayerId,
+    targetIntelligenceCardId,
+    countered: false,
+    suspendedReactionWindow: cloneReactionWindow(state.reactionWindow),
+    suspendedReactionCompleted: false,
+    frames: [frame],
+  });
+  state.reactionWindow = {
+    kind: "burn",
+    affectedPlayerId: targetPlayerId,
+    responderOrder: reactionOrderAfterTarget(state, targetPlayerId),
+    nextResponderIndex: 0,
+  };
+  state.auditLog.push(`${actorId}使用烧毁，目标为${targetPlayerId}的情报`);
+  assertGameStateInvariants(state);
+}
+
+function resolveBurnContext(state: GameState): void {
+  const context = state.burnContexts.pop();
+  if (!context) throw new Error("烧毁响应窗口缺少待结算行动");
+  if (!context.countered && state.players[context.targetPlayerId]?.alive) {
+    const target = state.players[context.targetPlayerId];
+    const index = target?.intelligence.indexOf(context.targetIntelligenceCardId) ?? -1;
+    // A nested burn may already have removed the same accepted intelligence.
+    if (index >= 0) {
+      target!.intelligence.splice(index, 1);
+      state.publicDiscard.push(context.targetIntelligenceCardId);
+      state.auditLog.push(`${context.targetPlayerId}的一张黑色情报被烧毁`);
+    } else {
+      state.auditLog.push("烧毁结算时目标情报已离场");
+    }
+  } else if (context.countered) {
+    state.auditLog.push("烧毁被识破，目标情报保持不变");
+  } else {
+    state.auditLog.push("烧毁结算前目标玩家已经死亡，烧毁不再生效");
+  }
+  state.reactionWindow = cloneReactionWindow(context.suspendedReactionWindow);
+  if (context.suspendedReactionCompleted && state.reactionWindow) {
+    finishPassedReactionWindow(state, state.reactionWindow);
+  } else {
+    assertGameStateInvariants(state);
+  }
+}
+
+function playCounterOnBurn(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  targetInteractionId: string,
+): void {
+  const context = state.burnContexts.at(-1);
+  const window = state.reactionWindow;
+  const target = context?.frames.at(-1);
+  if (!context || !window || window.kind !== "burn" || !target) {
+    throw new Error("当前没有可被识破的烧毁行动");
+  }
+  if (window.responderOrder[window.nextResponderIndex] !== actorId) {
+    throw new Error("尚未轮到该玩家响应");
+  }
+  if (target.id !== targetInteractionId) {
+    throw new Error("识破必须指向烧毁互动栈顶的卡牌行动");
+  }
+  const actor = state.players[actorId];
+  const cardIndex = actor?.hand.indexOf(cardId) ?? -1;
+  if (!actor?.alive || cardIndex < 0 || cardById(cardId).name !== "识破") {
+    throw new Error("必须使用自己手中的识破牌");
+  }
+  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+    throw new Error("当前玩家必须至少保留一张手牌用于传递");
+  }
+  if (target.sourcePlayerId === actorId) throw new Error("不能识破自己的卡牌行动");
+
+  const before = { countered: context.countered };
+  actor.hand.splice(cardIndex, 1);
+  state.publicDiscard.push(cardId);
+  context.countered = target.snapshot.countered;
+  const sequence = state.nextInteractionSequence++;
+  context.frames.push({
+    id: `interaction-${sequence}`,
+    sequence,
+    kind: "counter",
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    targetPlayerId: target.sourcePlayerId,
+    targetInteractionId: target.id,
+    snapshot: before,
+  });
+  state.reactionWindow = {
+    kind: "burn",
+    affectedPlayerId: target.sourcePlayerId,
+    responderOrder: reactionOrderAfterTarget(state, target.sourcePlayerId),
+    nextResponderIndex: 0,
+  };
+  state.auditLog.push(`${actorId}使用识破反制烧毁行动`);
+  assertGameStateInvariants(state);
 }
 
 export function playDecrypt(
@@ -2640,6 +2926,10 @@ export function playCounter(
   cardId: PhysicalCardId,
   targetInteractionId: string,
 ): void {
+  if (state.reactionWindow?.kind === "burn") {
+    playCounterOnBurn(state, actorId, cardId, targetInteractionId);
+    return;
+  }
   if (state.reactionWindow?.kind === "secretOrder") {
     playCounterOnSecretOrder(state, actorId, cardId, targetInteractionId);
     return;
@@ -2932,6 +3222,36 @@ export function projectGameForPlayer(
   const currentReactionResponderId =
     state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex];
   const activeFunctionAction = state.activeFunctionAction;
+  const canViewerBurn =
+    viewer.alive &&
+    ((currentReactionResponderId === viewerId && Boolean(state.reactionWindow)) ||
+      (state.phase === "initialized" &&
+        state.activePlayerId === viewerId &&
+        !state.reactionWindow &&
+        !activeFunctionAction)) &&
+    !(viewerId === state.activePlayerId && viewer.hand.length <= 1);
+  const burnActions: PlayerProjection["legalActions"] = canViewerBurn
+    ? viewer.hand
+        .filter((cardId) => cardById(cardId).name === "烧毁")
+        .flatMap((cardId) =>
+          state.seatOrder.flatMap((targetPlayerId) => {
+            const target = state.players[targetPlayerId];
+            return !target.alive
+              ? []
+              : target.intelligence.flatMap((targetIntelligenceCardId) => {
+                  const intelligence = cardById(targetIntelligenceCardId);
+                  return intelligence.color === "黑" && !intelligence.unburnable
+                    ? [{
+                        type: "PLAY_BURN" as const,
+                        cardId,
+                        targetPlayerId,
+                        targetIntelligenceCardId,
+                      }]
+                    : [];
+                });
+          }),
+        )
+    : [];
   const separationActions =
     currentReactionResponderId === viewerId &&
     state.reactionWindow?.kind === "transfer" &&
@@ -2999,7 +3319,9 @@ export function projectGameForPlayer(
   const interceptedRecipientMustAccept =
     transmission?.interceptorCommitted === true;
   const topInteraction =
-    state.reactionWindow?.kind === "function"
+    state.reactionWindow?.kind === "burn"
+      ? state.burnContexts.at(-1)?.frames.at(-1)
+      : state.reactionWindow?.kind === "function"
       ? state.activeFunctionStack.at(-1)
       : state.reactionWindow?.kind === "secretOrder"
         ? state.secretOrderStack.at(-1)
@@ -3213,6 +3535,7 @@ export function projectGameForPlayer(
             ...swapActions,
             ...lureActions,
             ...decryptActions,
+            ...burnActions,
             ...counterActions,
             ...functionSeparationActions,
             ...transferActions,
@@ -3294,7 +3617,7 @@ export function projectGameForPlayer(
       : state.phase === "initialized" &&
           viewerId === state.activePlayerId &&
           !activeFunctionAction
-        ? [...activeFunctionActions, { type: "ENTER_TRANSMISSION_PHASE" }]
+        ? [...activeFunctionActions, ...burnActions, { type: "ENTER_TRANSMISSION_PHASE" }]
         : activeFunctionActions,
   };
 }

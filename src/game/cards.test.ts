@@ -139,6 +139,23 @@ describe("规则相关结构约束", () => {
     );
   });
 
+  it("逐牌记录七张不可烧毁牌，不依赖运行时牌族推断", () => {
+    expect(
+      PHYSICAL_DECK.filter((card) => card.unburnable).map((card) => card.id),
+    ).toEqual([
+      "p2-06",
+      "p3-01",
+      "p3-05",
+      "p3-09",
+      "p4-15",
+      "p5-13",
+      "p6-05",
+    ]);
+    expect(PHYSICAL_DECK.every((card) => typeof card.unburnable === "boolean")).toBe(
+      true,
+    );
+  });
+
   it("抽弃型试探中三个阵营各有一张带圈和一张不带圈", () => {
     const factions: readonly Faction[] = ["军情", "潜伏", "特工"];
 

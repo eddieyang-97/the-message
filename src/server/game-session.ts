@@ -12,6 +12,7 @@ import {
   passLockOpportunity,
   passReaction,
   playConfidentialFile,
+  playBurn,
   playCounter,
   playDangerousIntelligence,
   playDecrypt,
@@ -49,6 +50,12 @@ export type GameCommand =
     }
   | { type: "PLAY_REINFORCEMENT"; cardId: PhysicalCardId }
   | { type: "PLAY_CONFIDENTIAL_FILE"; cardId: PhysicalCardId }
+  | {
+      type: "PLAY_BURN";
+      cardId: PhysicalCardId;
+      targetPlayerId: string;
+      targetIntelligenceCardId: PhysicalCardId;
+    }
   | { type: "PLAY_PUBLIC_TEXT"; cardId: PhysicalCardId; targetId: string }
   | {
       type: "PLAY_DANGEROUS_INTELLIGENCE";
@@ -155,6 +162,14 @@ function dispatchGameCommand(
       return playReinforcement(state, actorId, command.cardId);
     case "PLAY_CONFIDENTIAL_FILE":
       return playConfidentialFile(state, actorId, command.cardId);
+    case "PLAY_BURN":
+      return playBurn(
+        state,
+        actorId,
+        command.cardId,
+        command.targetPlayerId,
+        command.targetIntelligenceCardId,
+      );
     case "PLAY_PUBLIC_TEXT":
       return playPublicText(state, actorId, command.cardId, command.targetId);
     case "PLAY_DANGEROUS_INTELLIGENCE":
