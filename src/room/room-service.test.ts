@@ -93,6 +93,20 @@ describe("房间代码", () => {
     expect(service.createRoom(2, "甲").room.code).toBe("ABCDEF");
     expect(service.createRoom(2, "乙").room.code).toBe("GHIJKL");
   });
+
+  it("allows a creator to select an available room code", () => {
+    const service = createService();
+
+    expect(service.createRoom(2, "host", " custom ").room.code).toBe("CUSTOM");
+    expectRoomError(
+      () => service.createRoom(2, "second", "custom"),
+      "ROOM_CODE_TAKEN",
+    );
+    expectRoomError(
+      () => service.createRoom(2, "third", "BAD-01"),
+      "INVALID_ROOM_CODE",
+    );
+  });
 });
 
 describe("容量、名字和加入限制", () => {

@@ -48,17 +48,20 @@ export function LandingPage({
 }: LandingPageProps) {
   const [createName, setCreateName] = useState("");
   const [playerCount, setPlayerCount] = useState<PlayerCount>(5);
+  const [createRoomCode, setCreateRoomCode] = useState("");
   const [joinName, setJoinName] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [formError, setFormError] = useState<string>();
   const createNameId = useId();
   const countId = useId();
+  const createRoomCodeId = useId();
   const joinNameId = useId();
   const roomCodeId = useId();
 
   const submitCreate = (event: FormEvent) => {
     event.preventDefault();
-    const validationError = nameError(createName);
+    const validationError = nameError(createName) ||
+      (createRoomCode.trim() ? roomCodeError(createRoomCode) : undefined);
     if (validationError) {
       setFormError(validationError);
       return;
@@ -67,6 +70,9 @@ export function LandingPage({
     onCreateRoom({
       displayName: normalizedName(createName),
       playerCount,
+      roomCode: createRoomCode.trim()
+        ? normalizedRoomCode(createRoomCode)
+        : undefined,
     });
   };
 
@@ -180,6 +186,18 @@ export function LandingPage({
                 </option>
               ))}
             </select>
+
+            <label htmlFor={createRoomCodeId}>指定房间码（可选）</label>
+            <input
+              id={createRoomCodeId}
+              autoCapitalize="characters"
+              autoComplete="off"
+              className="room-code-input"
+              maxLength={6}
+              onChange={(event) => setCreateRoomCode(event.target.value.toUpperCase())}
+              placeholder="留空则随机生成"
+              value={createRoomCode}
+            />
 
             <button className="button button--primary button--wide" disabled={busy} type="submit">
               {busy ? "正在创建…" : "创建房间"}

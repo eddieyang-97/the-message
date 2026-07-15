@@ -210,7 +210,11 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       let entry: ReturnType<RoomService["createRoom"]>;
       try {
         requireUnbound();
-        entry = roomService.createRoom(request.capacity, request.displayName);
+        entry = roomService.createRoom(
+          request.capacity,
+          request.displayName,
+          request.roomCode,
+        );
         await bindIdentity(entry.room.code, entry.playerId);
         const safeEntry: SafeRoomEntryResult = {
           playerId: entry.playerId,

@@ -24,7 +24,11 @@ export class LobbyRequestError extends Error {
 }
 
 export interface LobbySocketClient {
-  createRoom(input: { capacity: number; displayName: string }): Promise<RoomEntryResult>;
+  createRoom(input: {
+    capacity: number;
+    displayName: string;
+    roomCode?: string;
+  }): Promise<RoomEntryResult>;
   joinRoom(input: { roomCode: string; displayName: string }): Promise<RoomEntryResult>;
   reconnect(input: { roomCode: string; reconnectToken: string }): Promise<RoomEntryResult>;
   leaveRoom(): Promise<void>;

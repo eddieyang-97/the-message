@@ -69,13 +69,19 @@ export class RoomService {
       options.roomCodeGenerator ?? (() => generateRoomCode(this.random));
   }
 
-  createRoom(capacity: number, displayName: string): RoomEntryResult {
+  createRoom(
+    capacity: number,
+    displayName: string,
+    requestedCode?: string,
+  ): RoomEntryResult {
     if (!isRoomCapacity(capacity)) {
       throw new RoomError("INVALID_CAPACITY", "不支持该房间人数");
     }
 
     const name = normalizeDisplayName(displayName);
-    const code = this.generateUniqueCode();
+    const code = requestedCode === undefined
+      ? this.generateUniqueCode()
+      : this.reserveRequestedCode(requestedCode);
     const credentials = this.createCredentials();
     const creator: RoomPlayer = {
       id: credentials.playerId,
@@ -464,6 +470,14 @@ export class RoomService {
       "CODE_GENERATION_EXHAUSTED",
       "暂时无法创建房间，请重试",
     );
+  }
+
+  private reserveRequestedCode(roomCode: string): string {
+    const code = requireRoomCode(roomCode);
+    if (this.rooms.has(code)) {
+      throw new RoomError("ROOM_CODE_TAKEN", "房间码已被使用");
+    }
+    return code;
   }
 
   private snapshot(room: RoomRecord): RoomSnapshot {

@@ -160,6 +160,7 @@ export function App() {
     void runAction("create", async () => enterRoom(await client.createRoom({
       capacity: input.playerCount,
       displayName: input.displayName,
+      roomCode: input.roomCode,
     })));
   };
 

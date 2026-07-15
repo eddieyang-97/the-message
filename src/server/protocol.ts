@@ -38,7 +38,7 @@ export interface SafeStartRoomResult {
 
 export interface ClientToServerEvents {
   "room:create": (
-    request: { capacity: RoomCapacity; displayName: string },
+    request: { capacity: RoomCapacity; displayName: string; roomCode?: string },
     acknowledge: Acknowledge<SafeRoomEntryResult>,
   ) => void;
   "room:join": (

@@ -12,6 +12,7 @@ export type StartMode = "current-seats" | "random-seats";
 export interface CreateRoomInput {
   displayName: string;
   playerCount: PlayerCount;
+  roomCode?: string;
 }
 export interface JoinRoomInput {
   displayName: string;
