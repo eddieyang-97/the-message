@@ -34,6 +34,7 @@ export interface LobbySocketClient {
   setReactionTimeout(input: { seconds: number | null }): Promise<void>;
   markDisconnectedPlayerDead(input: { targetPlayerId: string }): Promise<void>;
   startRoom(input: { seatMode: StartSeatMode }): Promise<StartRoomResult>;
+  returnToLobby(): Promise<void>;
   onRoomUpdated(listener: (room: RoomSnapshot) => void): () => void;
   onRemoved(listener: (message?: string) => void): () => void;
   onRoomStarted(listener: (result: StartRoomResult) => void): () => void;
@@ -77,6 +78,7 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
     setReactionTimeout: (input) => emitAck(socket, "room:timeout", input),
     markDisconnectedPlayerDead: (input) => emitAck(socket, "room:mark-dead", input),
     startRoom: (input) => emitAck(socket, "room:start", input),
+    returnToLobby: () => emitAck(socket, "room:new-game", {}),
     onRoomUpdated(listener) {
       socket.on("room:snapshot", listener);
       return () => socket.off("room:snapshot", listener);

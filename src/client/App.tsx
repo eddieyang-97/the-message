@@ -135,6 +135,13 @@ export function App() {
       .catch((error: unknown) => setErrorMessage(errorText(error)));
   }), [credentials, enterRoom, room]);
 
+  useEffect(() => {
+    if (room?.phase !== "lobby" || !game?.winner) return;
+    setGame(undefined);
+    setReactionTimer(null);
+    setNotice("已返回大厅，可以开始新游戏");
+  }, [game?.winner, room?.phase]);
+
   const runAction = useCallback(async (name: string, action: () => Promise<unknown>) => {
     setBusyAction(name);
     setErrorMessage(undefined);
@@ -210,6 +217,7 @@ export function App() {
           "mark-dead",
           () => client.markDisconnectedPlayerDead({ targetPlayerId }),
         )}
+        onNewGame={() => void runAction("new-game", () => client.returnToLobby())}
       />
     );
   }

@@ -109,6 +109,41 @@ describe("game server sessions", () => {
     expect(projection.own.hand.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("returns every player to the same lobby after the host starts a new game", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 17 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const host = connect(port);
+    const guest = connect(port);
+    sockets.push(host, guest);
+    await Promise.all([connected(host), connected(guest)]);
+    const created = await emitAck<SafeRoomEntryResult>(host, "room:create", {
+      capacity: 2,
+      displayName: "房主",
+    });
+    const joined = await emitAck<SafeRoomEntryResult>(guest, "room:join", {
+      roomCode: created.room.code,
+      displayName: "朋友",
+    });
+    await emitAck<SafeStartRoomResult>(host, "room:start", { seatMode: "as-is" });
+    const game = server.gameSessionService.getState(created.room.code);
+    game.phase = "gameOver";
+    game.winner = { kind: "agent", playerId: game.activePlayerId };
+    game.players[joined.playerId].alive = false;
+    server.roomService.synchronizePlayerDeaths(created.room.code, [joined.playerId]);
+    const hostLobby = onceEvent(host, "room:snapshot");
+    const guestLobby = onceEvent(guest, "room:snapshot");
+
+    await emitAck(host, "room:new-game", {});
+    const [hostRoom, guestRoom] = await Promise.all([hostLobby, guestLobby]);
+
+    expect(hostRoom.phase).toBe("lobby");
+    expect(guestRoom.phase).toBe("lobby");
+    expect(hostRoom.code).toBe(created.room.code);
+    expect(guestRoom.players.every((player) => player.alive)).toBe(true);
+    expect(server.gameSessionService.has(created.room.code)).toBe(false);
+  });
+
   it("authorizes host-imposed death and keeps room and game state synchronized", async () => {
     server = createGameServer({ gameSeedGenerator: () => 7 });
     await server.listen(0, "127.0.0.1");

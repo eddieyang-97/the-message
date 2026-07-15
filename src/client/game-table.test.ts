@@ -8,9 +8,11 @@ import {
   cardVariantText,
   factionBackgroundClass,
   formatAuditEntries,
+  inspectedHandForProjection,
   mergeAuditLogs,
   promptTitle,
   seatOrderAnchoredAtPlayer,
+  transmissionDirectionForSelection,
 } from "./GameTable";
 
 const identityProbe = {
@@ -121,6 +123,21 @@ describe("transmission prompt", () => {
   });
 });
 
+describe("private hand inspection", () => {
+  it("shows the verified hand to the 秘密下达 player after a no-match claim", () => {
+    expect(inspectedHandForProjection({
+      ...projection,
+      pendingSecretOrder: {
+        stage: "selection",
+        targetPlayerId: "甲",
+        sourcePlayerId: "乙",
+        word: "听风",
+        inspectedHand: [identityProbe],
+      },
+    })).toEqual([identityProbe]);
+  });
+});
+
 describe("public audit log", () => {
   it("places lobby history before gameplay history without duplicating shared entries", () => {
     expect(mergeAuditLogs(
@@ -164,5 +181,14 @@ describe("viewer-relative seat layout", () => {
     expect(seatOrderAnchoredAtPlayer(["甲", "乙", "丙", "丁", "戊"], "丙"))
       .toEqual(["丙", "丁", "戊", "甲", "乙"]);
     expect(seatOrderAnchoredAtPlayer(["甲", "乙"], "乙")).toEqual(["乙", "甲"]);
+  });
+});
+
+describe("duel transmission direction", () => {
+  it("omits the meaningless direction choice for circle cards", () => {
+    expect(transmissionDirectionForSelection("duel", true, "counterclockwise"))
+      .toBeUndefined();
+    expect(transmissionDirectionForSelection("standard", true, "counterclockwise"))
+      .toBe("counterclockwise");
   });
 });

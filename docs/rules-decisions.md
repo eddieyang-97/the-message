@@ -33,6 +33,7 @@ Each unresolved item should remain explicit until confirmed.
 - The resulting duel deck contains exactly 73 cards.
 - The standard 87-card manifest and its invariants remain unchanged.
 - Test the duel deck composition and filtering separately from the standard deck.
+- Direction is not requested in duel mode; circle transmissions use the only meaningful route automatically.
 
 ### Starting hand size
 
@@ -719,6 +720,14 @@ Recommended:
 - Active games do not survive a server-process restart for MVP.
 - Completed games and saved replays are not retained for MVP.
 - Database-backed persistence and retained replays are deferred until after the first playable version.
+
+### New game in the same room
+
+**Status:** CONFIRMED
+
+- After a game ends, the host may return every player to the lobby with the same room code, seats, reconnect tokens, capacity, and reaction-timeout setting.
+- Clear the completed authoritative game session and reset every player's alive state before another game starts.
+- The room must still be full and all players connected before the host can start the next game normally.
 
 ---
 

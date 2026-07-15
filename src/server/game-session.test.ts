@@ -69,6 +69,15 @@ describe("GameSessionService", () => {
     );
   });
 
+  it("deletes a completed session so the room can create another game", () => {
+    const sessions = new GameSessionService();
+    sessions.create("ABCDEF", players, 42);
+
+    expect(sessions.delete("ABCDEF")).toBe(true);
+    expect(sessions.has("ABCDEF")).toBe(false);
+    expect(() => sessions.create("ABCDEF", players, 43)).not.toThrow();
+  });
+
   it("resolves a host-imposed death through the authoritative engine state", () => {
     const sessions = new GameSessionService();
     const state = sessions.create("ABCDEF", players, 42);

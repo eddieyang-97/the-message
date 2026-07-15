@@ -22,6 +22,7 @@ export interface GameTableProps {
   disconnectedLivingPlayers?: readonly { id: string; displayName: string }[];
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
   onMarkDisconnectedPlayerDead: (playerId: string) => void;
+  onNewGame: () => void;
   onCommand: (command: GameCommand) => void;
 }
 
@@ -121,6 +122,22 @@ export function seatOrderAnchoredAtPlayer(
   const anchorIndex = seatOrder.indexOf(playerId);
   if (anchorIndex < 0) throw new Error("当前玩家不在座位顺序中");
   return [...seatOrder.slice(anchorIndex), ...seatOrder.slice(0, anchorIndex)];
+}
+
+export function transmissionDirectionForSelection(
+  mode: PlayerProjection["mode"],
+  circle: boolean,
+  direction: "clockwise" | "counterclockwise",
+): "clockwise" | "counterclockwise" | undefined {
+  return circle && mode !== "duel" ? direction : undefined;
+}
+
+export function inspectedHandForProjection(
+  projection: PlayerProjection,
+): PhysicalCard[] {
+  return projection.activeFunctionAction?.inspectedHand ??
+    projection.pendingSecretOrder?.inspectedHand ??
+    [];
 }
 
 export function cardVariantText(card: PhysicalCard): string | undefined {
@@ -281,6 +298,7 @@ export function GameTable({
   disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
   onMarkDisconnectedPlayerDead,
+  onNewGame,
   onCommand,
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
@@ -294,7 +312,7 @@ export function GameTable({
   const targetIds = new Set(selectedActions.filter((action) => action.type !== "PLAY_BURN").map(actionTargetId).filter((id): id is string => Boolean(id)));
   const immediateActions = actions.filter((action) => !actionCardId(action));
   const selectedImmediateActions = selectedActions.filter((action) => !actionTargetId(action));
-  const inspectedHand = projection.activeFunctionAction?.inspectedHand ?? [];
+  const inspectedHand = inspectedHandForProjection(projection);
   const selectedBurnActions = selectedCardId
     ? (actions as readonly GameCommand[]).filter(
         (action): action is BurnCommand =>
@@ -323,6 +341,9 @@ export function GameTable({
     () => seatOrderAnchoredAtPlayer(projection.seatOrder, projection.own.id),
     [projection.own.id, projection.seatOrder],
   );
+  const transmissionRecipientIndex = projection.transmission
+    ? displaySeatOrder.indexOf(projection.transmission.intendedRecipientId)
+    : -1;
   const autoPassAction = automaticPassCommand(actions);
   const autoPassPrompt = reactionTimer?.promptId ?? (
     projection.reactionWindow
@@ -412,7 +433,14 @@ export function GameTable({
       </header>
 
       {errorMessage && <div className="game-error" role="alert">{errorMessage}</div>}
-      {projection.winner && <div className="winner-banner">游戏结束 · 胜者：{projection.winner.kind === "faction" ? projection.winner.faction : projection.winner.playerId}</div>}
+      {projection.winner && (
+        <div className="winner-banner">
+          <span>游戏结束 · 胜者：{projection.winner.kind === "faction" ? projection.winner.faction : playerDisplayNames[projection.winner.playerId] ?? projection.winner.playerId}</span>
+          {isHost
+            ? <button disabled={busy || !connected} onClick={onNewGame} type="button">新游戏</button>
+            : <small>等待房主开始新游戏</small>}
+        </div>
+      )}
 
       <section className="game-layout">
         <div className="table-area">
@@ -453,13 +481,25 @@ export function GameTable({
               );
             })}
 
-            <section className="table-center">
+            {projection.transmission && transmissionRecipientIndex >= 0 && (
+              <div
+                aria-label="待传递情报"
+                className="transmission-card-slot"
+                style={{
+                  "--player-index": transmissionRecipientIndex,
+                  "--player-count": displaySeatOrder.length,
+                } as React.CSSProperties}
+              >
+                {projection.transmission.card
+                  ? <CardView card={projection.transmission.card} />
+                  : <div className="hidden-card">未公开情报</div>}
+              </div>
+            )}
+
+            <section className={`table-center${projection.transmission ? " table-center--transmission" : ""}`}>
               {projection.transmission ? (
                 <>
                   <p>待传递情报 · {projection.transmission.method}</p>
-                  {projection.transmission.card
-                    ? <CardView card={projection.transmission.card} />
-                    : <div className="hidden-card">未公开情报</div>}
                   <strong>
                     {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
                     {" → "}
@@ -523,7 +563,7 @@ export function GameTable({
                     <option value="直达">直达</option><option value="文本">文本</option><option value="密电">密电</option>
                   </select>
                 )}
-                {selectedCard.circle && effectiveMethod !== "直达" && (
+                {projection.mode !== "duel" && selectedCard.circle && effectiveMethod !== "直达" && (
                   <select onChange={(event) => setDirection(event.target.value as typeof direction)} value={direction}>
                     <option value="clockwise">顺时针</option><option value="counterclockwise">逆时针</option>
                   </select>
@@ -531,7 +571,7 @@ export function GameTable({
                 {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
                   <button disabled={busy || !connected} key={player.id} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">发给 {playerDisplayNames[player.id] ?? player.id}</button>
                 )) : (
-                  <button disabled={busy || !connected} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: selectedCard.circle ? direction : undefined })} type="button">开始传递</button>
+                  <button disabled={busy || !connected} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">开始传递</button>
                 )}
               </div>
             )}

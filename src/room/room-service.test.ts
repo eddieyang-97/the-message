@@ -290,6 +290,27 @@ describe("开始游戏", () => {
   });
 });
 
+describe("同房间新游戏", () => {
+  it("仅房主可在已开始的房间重置存活状态并返回大厅", () => {
+    const service = createService();
+    const room = fillDuel(service);
+    service.startRoom(room.code, room.hostId, "as-is");
+    service.synchronizePlayerDeaths(room.code, [room.guestId]);
+
+    expectRoomError(
+      () => service.returnToLobby(room.code, room.guestId),
+      "NOT_HOST",
+    );
+    const reset = service.returnToLobby(room.code, room.hostId);
+
+    expect(reset.phase).toBe("lobby");
+    expect(reset.players.every((player) => player.alive)).toBe(true);
+    expect(reset.players.map((player) => player.seatIndex)).toEqual([0, 1]);
+    expect(reset.reactionTimeoutSeconds).toBe(15);
+    expect(reset.publicAuditLog.at(-1)).toBe("房主发起新游戏，所有玩家返回大厅");
+  });
+});
+
 describe("反应时限", () => {
   it("默认十五秒，房主可选择支持的值且变更写入公开日志", () => {
     const service = createService();

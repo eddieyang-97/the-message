@@ -2071,8 +2071,12 @@ export function startTransmission(
     intendedRecipientId = options.targetId;
   } else {
     if (card.circle) {
-      if (!options.direction) throw new Error("带圈情报必须选择传递方向");
-      direction = options.direction;
+      if (state.mode === "duel") {
+        direction = "clockwise";
+      } else {
+        if (!options.direction) throw new Error("带圈情报必须选择传递方向");
+        direction = options.direction;
+      }
     } else {
       if (options.direction === "counterclockwise") {
         throw new Error("不带圈情报不能选择逆时针");

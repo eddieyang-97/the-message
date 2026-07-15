@@ -413,6 +413,26 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       }
     });
 
+    socket.on("room:new-game", async (_request, acknowledge) => {
+      try {
+        const identity = requireIdentity();
+        const game = gameSessionService.getState(identity.roomCode);
+        if (game.phase !== "gameOver") {
+          throw new TransportFailure("GAME_NOT_OVER", "游戏结束后才能开始新游戏");
+        }
+        const room = roomService.returnToLobby(
+          identity.roomCode,
+          identity.playerId,
+        );
+        gameSessionService.delete(identity.roomCode);
+        reactionTimeoutScheduler.cancel(identity.roomCode);
+        acknowledge({ ok: true, data: undefined });
+        await broadcastRoom(room.code);
+      } catch (error) {
+        acknowledge(failure(error));
+      }
+    });
+
     socket.on("room:mark-dead", async (request, acknowledge) => {
       const room = reply(acknowledge, () => {
         const identity = requireIdentity();

@@ -202,6 +202,24 @@ describe("开始传递", () => {
     expect(() => assertGameStateInvariants(state)).not.toThrow();
   });
 
+  it("双人模式带圈情报无需选择方向并固定为顺时针", () => {
+    const state = initializedWithActive(["甲", "乙"], 11);
+    const cardId = state.drawPile.find((id) =>
+      PHYSICAL_DECK.some(
+        (card) => card.id === id && card.transmission === "密电" && card.circle,
+      ),
+    );
+    if (!cardId) throw new Error("双人牌组缺少带圈密电");
+    putCardInHand(state, "甲", cardId);
+
+    startTransmission(state, "甲", cardId);
+
+    expect(state.transmission).toMatchObject({
+      direction: "clockwise",
+      intendedRecipientId: "乙",
+    });
+  });
+
   it("带圈情报选择逆时针后方向保持固定", () => {
     const state = initializedWithActive(players, 2);
     const cardId = cardIdWhere(

@@ -318,6 +318,19 @@ export class RoomService {
     };
   }
 
+  returnToLobby(roomCode: string, hostPlayerId: string): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    if (room.phase !== "started") {
+      throw new RoomError("ROOM_NOT_STARTED", "游戏尚未开始");
+    }
+    this.requireHost(room, hostPlayerId);
+    room.phase = "lobby";
+    room.pendingSeatSwaps.clear();
+    for (const player of room.players.values()) player.alive = true;
+    room.publicAuditLog.push("房主发起新游戏，所有玩家返回大厅");
+    return this.snapshot(room);
+  }
+
   setReactionTimeout(
     roomCode: string,
     hostPlayerId: string,

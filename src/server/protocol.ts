@@ -81,6 +81,10 @@ export interface ClientToServerEvents {
     request: { seatMode: StartSeatMode },
     acknowledge: Acknowledge<SafeStartRoomResult>,
   ) => void;
+  "room:new-game": (
+    request: Record<string, never>,
+    acknowledge: Acknowledge,
+  ) => void;
   "room:mark-dead": (
     request: { targetPlayerId: string },
     acknowledge: Acknowledge,

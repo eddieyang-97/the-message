@@ -103,6 +103,10 @@ export class GameSessionService {
     return this.sessions.has(roomCode);
   }
 
+  delete(roomCode: string): boolean {
+    return this.sessions.delete(roomCode);
+  }
+
   getState(roomCode: string): GameState {
     const state = this.sessions.get(roomCode);
     if (!state) throw new GameSessionError("GAME_NOT_FOUND", "房间游戏尚未开始");
