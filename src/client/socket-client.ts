@@ -6,6 +6,8 @@ import type {
   StartRoomResult,
   StartSeatMode,
 } from "../room";
+import type { PlayerProjection } from "../game/engine";
+import type { GameCommand } from "../server";
 
 type AckSuccess<T> = { ok: true; data: T };
 type AckFailure = { ok: false; error: { code?: string; message: string } };
@@ -35,6 +37,9 @@ export interface LobbySocketClient {
   onRemoved(listener: (message?: string) => void): () => void;
   onRoomStarted(listener: (result: StartRoomResult) => void): () => void;
   onConnect(listener: () => void): () => void;
+  onDisconnect(listener: () => void): () => void;
+  onGameSnapshot(listener: (projection: PlayerProjection) => void): () => void;
+  sendGameCommand(command: GameCommand): Promise<PlayerProjection>;
   disconnect(): void;
 }
 
@@ -87,6 +92,15 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
       socket.on("connect", listener);
       return () => socket.off("connect", listener);
     },
+    onDisconnect(listener) {
+      socket.on("disconnect", listener);
+      return () => socket.off("disconnect", listener);
+    },
+    onGameSnapshot(listener) {
+      socket.on("game:snapshot", listener);
+      return () => socket.off("game:snapshot", listener);
+    },
+    sendGameCommand: (command) => emitAck(socket, "game:command", { command }),
     disconnect: () => socket.disconnect(),
   };
 }

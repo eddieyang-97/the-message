@@ -5,6 +5,8 @@ import type {
   RoomSnapshot,
   StartSeatMode,
 } from "../room";
+import type { PlayerProjection } from "../game/engine";
+import type { GameCommand } from "./game-session";
 
 export interface TransportError {
   code: string;
@@ -83,8 +85,8 @@ export interface ClientToServerEvents {
     acknowledge: Acknowledge,
   ) => void;
   "game:command": (
-    request: { command: unknown },
-    acknowledge: Acknowledge,
+    request: { command: GameCommand },
+    acknowledge: Acknowledge<PlayerProjection>,
   ) => void;
 }
 
@@ -95,6 +97,7 @@ export interface ServerToClientEvents {
     reason: "left" | "removed";
   }) => void;
   "room:started": (result: SafeStartRoomResult) => void;
+  "game:snapshot": (game: PlayerProjection) => void;
 }
 
 export interface InterServerEvents {}

@@ -3,6 +3,9 @@ import {
   type Faction,
   type PhysicalCard,
   type PhysicalCardId,
+  type ProbeCode,
+  type SecretOrderWord,
+  type SingleColor,
   type TransmissionMethod,
 } from "./cards";
 
@@ -38,6 +41,11 @@ export interface TransmissionState {
     sourceCardId: PhysicalCardId;
     targetId: PlayerId;
   };
+  pendingDecrypt?: {
+    sourceCardId: PhysicalCardId;
+    playerId: PlayerId;
+  };
+  decryptedById?: PlayerId;
 }
 
 export type WinnerState =
@@ -45,7 +53,15 @@ export type WinnerState =
   | { kind: "agent"; playerId: PlayerId };
 
 export interface ReactionWindow {
-  kind: "intelligence" | "transfer" | "lock" | "swap" | "lure" | "function";
+  kind:
+    | "intelligence"
+    | "transfer"
+    | "lock"
+    | "swap"
+    | "lure"
+    | "decrypt"
+    | "function"
+    | "secretOrder";
   affectedPlayerId: PlayerId;
   responderOrder: PlayerId[];
   nextResponderIndex: number;
@@ -55,7 +71,9 @@ export type ActiveFunctionKind =
   | "reinforcement"
   | "confidentialFile"
   | "publicText"
-  | "dangerousIntelligence";
+  | "dangerousIntelligence"
+  | "probeIdentity"
+  | "probeDrawDiscard";
 
 export interface ActiveFunctionAction {
   kind: ActiveFunctionKind;
@@ -65,7 +83,11 @@ export interface ActiveFunctionAction {
   targetPlayerId: PlayerId;
   separationUsed: boolean;
   countered: boolean;
-  stage: "reactions" | "awaitingDiscard";
+  stage:
+    | "reactions"
+    | "awaitingDiscard"
+    | "awaitingProbeChoice"
+    | "awaitingProbeDiscard";
 }
 
 export interface ActiveFunctionSnapshot {
@@ -91,7 +113,8 @@ export type CardActionKind =
   | "counter"
   | "lock"
   | "swap"
-  | "lure";
+  | "lure"
+  | "decrypt";
 
 export interface ReversibleInteractionSnapshot {
   intendedRecipientId: PlayerId;
@@ -108,6 +131,11 @@ export interface ReversibleInteractionSnapshot {
     sourceCardId: PhysicalCardId;
     targetId: PlayerId;
   };
+  pendingDecrypt?: {
+    sourceCardId: PhysicalCardId;
+    playerId: PlayerId;
+  };
+  decryptedById?: PlayerId;
   pendingTransfer?: {
     sourceCardId: PhysicalCardId;
     targetId: PlayerId;
@@ -145,10 +173,33 @@ export interface PendingPublicTextReceipt {
   choices: PublicTextReceiptChoice[];
 }
 
+export interface PendingSecretOrder {
+  stage: "offering" | "reactions" | "selection";
+  targetPlayerId: PlayerId;
+  sourcePlayerId?: PlayerId;
+  sourceCardId?: PhysicalCardId;
+  word?: SecretOrderWord;
+  requiredColor?: SingleColor;
+  countered: boolean;
+  verifiedNoMatch: boolean;
+}
+
+interface SecretOrderFrame {
+  id: string;
+  sequence: number;
+  kind: "secretOrder" | "counter";
+  sourcePlayerId: PlayerId;
+  sourceCardId: PhysicalCardId;
+  targetPlayerId: PlayerId;
+  targetInteractionId?: string;
+  snapshot: { countered: boolean };
+}
+
 export interface GameState {
   mode: GameMode;
   phase:
     | "initialized"
+    | "preTransmission"
     | "transmitting"
     | "resolvingReceipt"
     | "awaitingTurnEnd"
@@ -163,10 +214,12 @@ export interface GameState {
   removedProbes: PhysicalCardId[];
   transmission?: TransmissionState;
   pendingPublicTextReceipt?: PendingPublicTextReceipt;
+  pendingSecretOrder?: PendingSecretOrder;
   reactionWindow?: ReactionWindow;
   interactionStack: CardActionFrame[];
   activeFunctionAction?: ActiveFunctionAction;
   activeFunctionStack: ActiveFunctionFrame[];
+  secretOrderStack: SecretOrderFrame[];
   nextInteractionSequence: number;
   randomState: number;
   winner?: WinnerState;
@@ -210,6 +263,7 @@ export interface PlayerProjection {
       sourceCard: PhysicalCard;
       targetId: PlayerId;
     };
+    decrypted?: boolean;
   };
   winner?: WinnerState;
   reactionWindow?: {
@@ -228,6 +282,14 @@ export interface PlayerProjection {
     stage: PendingPublicTextReceipt["stage"];
     choices: PublicTextReceiptChoice[];
   };
+  pendingSecretOrder?: {
+    stage: PendingSecretOrder["stage"];
+    targetPlayerId: PlayerId;
+    sourcePlayerId?: PlayerId;
+    word?: SecretOrderWord;
+    requiredColor?: SingleColor;
+    inspectedHand?: PhysicalCard[];
+  };
   legalActions: Array<
     | { type: "ACCEPT_INTELLIGENCE" }
     | { type: "DECLINE_INTELLIGENCE" }
@@ -242,6 +304,7 @@ export interface PlayerProjection {
     | { type: "PLAY_LOCK"; cardId: PhysicalCardId }
     | { type: "PLAY_SWAP"; cardId: PhysicalCardId }
     | { type: "PLAY_LURE"; cardId: PhysicalCardId }
+    | { type: "PLAY_DECRYPT"; cardId: PhysicalCardId }
     | {
         type: "PLAY_SEPARATION";
         cardId: PhysicalCardId;
@@ -250,6 +313,12 @@ export interface PlayerProjection {
     | { type: "PLAY_INTERCEPT"; cardId: PhysicalCardId }
     | { type: "PLAY_REINFORCEMENT"; cardId: PhysicalCardId }
     | { type: "PLAY_CONFIDENTIAL_FILE"; cardId: PhysicalCardId }
+    | { type: "PLAY_PROBE"; cardId: PhysicalCardId; targetId: PlayerId }
+    | { type: "CHOOSE_PROBE_IDENTITY"; choice: "announce" | "giveRandom" }
+    | { type: "CHOOSE_PROBE_DISCARD"; cardId: PhysicalCardId }
+    | { type: "ENTER_TRANSMISSION_PHASE" }
+    | { type: "PLAY_SECRET_ORDER"; cardId: PhysicalCardId; word: SecretOrderWord }
+    | { type: "CLAIM_NO_SECRET_ORDER_MATCH" }
     | {
         type: "PLAY_PUBLIC_TEXT";
         cardId: PhysicalCardId;
@@ -441,6 +510,7 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
     removedProbes: [],
     interactionStack: [],
     activeFunctionStack: [],
+    secretOrderStack: [],
     nextInteractionSequence: 1,
     randomState: (seed ^ 0x9e3779b9) >>> 0,
     auditLog: [
@@ -578,7 +648,14 @@ export function assertGameStateInvariants(state: GameState): void {
   if (state.reactionWindow) {
     if (
       state.phase !== "transmitting" &&
-      !(state.phase === "initialized" && state.reactionWindow.kind === "function")
+      !(
+        state.phase === "initialized" &&
+        state.reactionWindow.kind === "function"
+      ) &&
+      !(
+        state.phase === "preTransmission" &&
+        state.reactionWindow.kind === "secretOrder"
+      )
     ) {
       throw new Error("响应窗口与当前阶段不一致");
     }
@@ -607,7 +684,16 @@ export function assertGameStateInvariants(state: GameState): void {
     ) {
       throw new Error("响应窗口的当前响应位置无效");
     }
-    if (state.reactionWindow.kind === "function") {
+    if (state.reactionWindow.kind === "secretOrder") {
+      if (
+        !state.pendingSecretOrder ||
+        (state.reactionWindow.affectedPlayerId !== state.activePlayerId &&
+          state.reactionWindow.affectedPlayerId !==
+            state.secretOrderStack.at(-1)?.targetPlayerId)
+      ) {
+        throw new Error("秘密下达响应窗口无效");
+      }
+    } else if (state.reactionWindow.kind === "function") {
       if (
         !state.activeFunctionAction ||
         state.activeFunctionAction.stage !== "reactions" ||
@@ -644,6 +730,7 @@ export function assertGameStateInvariants(state: GameState): void {
     lock: "锁定",
     swap: "掉包",
     lure: "调虎离山",
+    decrypt: "破译",
   };
   for (const frame of state.interactionStack) {
     if (
@@ -705,6 +792,9 @@ export function assertGameStateInvariants(state: GameState): void {
   if (!state.transmission && state.interactionStack.length > 0) {
     throw new Error("没有传递时互动栈必须为空");
   }
+  if ((state.phase === "preTransmission") !== Boolean(state.pendingSecretOrder)) {
+    throw new Error("传递准备阶段与秘密下达窗口不一致");
+  }
   if (Boolean(state.activeFunctionAction) !== (state.activeFunctionStack.length > 0)) {
     throw new Error("功能牌行动与功能牌互动栈不一致");
   }
@@ -716,7 +806,10 @@ export function assertGameStateInvariants(state: GameState): void {
       action.sourcePlayerId !== state.activePlayerId ||
       !state.players[action.sourcePlayerId]?.alive ||
       !state.players[action.targetPlayerId]?.alive ||
-      !state.publicDiscard.includes(action.sourceCardId)
+      !(
+        state.publicDiscard.includes(action.sourceCardId) ||
+        state.removedProbes.includes(action.sourceCardId)
+      )
     ) {
       throw new Error("待处理功能牌行动无效");
     }
@@ -725,13 +818,16 @@ export function assertGameStateInvariants(state: GameState): void {
     ) {
       throw new Error("功能牌响应阶段必须拥有响应窗口");
     }
-    if (action.stage === "awaitingDiscard" && state.reactionWindow) {
-      throw new Error("危险情报选牌阶段不能保留响应窗口");
+    if (action.stage !== "reactions" && state.reactionWindow) {
+      throw new Error("功能牌选择阶段不能保留响应窗口");
     }
   }
   for (const frame of state.activeFunctionStack) {
     if (
-      !state.publicDiscard.includes(frame.sourceCardId) ||
+      !(
+        state.publicDiscard.includes(frame.sourceCardId) ||
+        state.removedProbes.includes(frame.sourceCardId)
+      ) ||
       !state.players[frame.sourcePlayerId] ||
       !state.players[frame.targetPlayerId] ||
       frame.id !== `interaction-${frame.sequence}` ||
@@ -927,6 +1023,10 @@ function captureInteractionSnapshot(
     pendingLure: transmission.pendingLure
       ? { ...transmission.pendingLure }
       : undefined,
+    pendingDecrypt: transmission.pendingDecrypt
+      ? { ...transmission.pendingDecrypt }
+      : undefined,
+    decryptedById: transmission.decryptedById,
   };
 }
 
@@ -950,6 +1050,10 @@ function restoreInteractionSnapshot(
   transmission.pendingLure = snapshot.pendingLure
     ? { ...snapshot.pendingLure }
     : undefined;
+  transmission.pendingDecrypt = snapshot.pendingDecrypt
+    ? { ...snapshot.pendingDecrypt }
+    : undefined;
+  transmission.decryptedById = snapshot.decryptedById;
 }
 
 function pushCardActionFrame(
@@ -992,6 +1096,8 @@ function beginNormalReceiptCycle(
   transmission.pendingTransfer = undefined;
   transmission.pendingSwap = undefined;
   transmission.pendingLure = undefined;
+  transmission.pendingDecrypt = undefined;
+  transmission.decryptedById = undefined;
   state.interactionStack = [];
   state.reactionWindow = undefined;
 
@@ -1033,6 +1139,108 @@ export interface StartTransmissionOptions {
   method?: FixedTransmissionMethod;
   direction?: Direction;
   targetId?: PlayerId;
+}
+
+export function enterTransmissionPhase(state: GameState, actorId: PlayerId): void {
+  if (state.phase !== "initialized" || state.activeFunctionAction || state.reactionWindow) {
+    throw new Error("当前不能进入传递阶段");
+  }
+  if (actorId !== state.activePlayerId || !state.players[actorId]?.alive) {
+    throw new Error("只有当前存活玩家可以进入传递阶段");
+  }
+  if (state.players[actorId].hand.length > 7) {
+    throw new Error("进入传递阶段前必须将手牌弃至7张");
+  }
+  state.phase = "preTransmission";
+  state.pendingSecretOrder = {
+    stage: "offering",
+    targetPlayerId: actorId,
+    countered: false,
+    verifiedNoMatch: false,
+  };
+  state.secretOrderStack = [];
+  state.reactionWindow = {
+    kind: "secretOrder",
+    affectedPlayerId: actorId,
+    responderOrder: reactionOrderAfterTarget(state, actorId),
+    nextResponderIndex: 0,
+  };
+  state.auditLog.push(`${actorId}结束功能牌阶段，进入秘密下达窗口`);
+  assertGameStateInvariants(state);
+}
+
+export function playSecretOrder(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  word: SecretOrderWord,
+): void {
+  const pending = state.pendingSecretOrder;
+  const window = state.reactionWindow;
+  if (
+    state.phase !== "preTransmission" ||
+    !pending ||
+    pending.stage !== "offering" ||
+    !window ||
+    window.kind !== "secretOrder" ||
+    window.responderOrder[window.nextResponderIndex] !== actorId ||
+    actorId === state.activePlayerId
+  ) throw new Error("当前不能使用秘密下达");
+  const actor = state.players[actorId];
+  const index = actor?.hand.indexOf(cardId) ?? -1;
+  const card = index >= 0 ? cardById(cardId) : undefined;
+  if (!actor?.alive || !card || card.variant?.kind !== "secretOrder") {
+    throw new Error("必须使用自己手中的秘密下达");
+  }
+  actor.hand.splice(index, 1);
+  state.hiddenSecretOrders.push(cardId);
+  pending.stage = "reactions";
+  pending.sourcePlayerId = actorId;
+  pending.sourceCardId = cardId;
+  pending.word = word;
+  pending.requiredColor = card.variant.mapping[word];
+  pending.countered = false;
+  const sequence = state.nextInteractionSequence++;
+  state.secretOrderStack = [{
+    id: `interaction-${sequence}`,
+    sequence,
+    kind: "secretOrder",
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    targetPlayerId: state.activePlayerId,
+    snapshot: { countered: true },
+  }];
+  state.reactionWindow = {
+    kind: "secretOrder",
+    affectedPlayerId: state.activePlayerId,
+    responderOrder: reactionOrderAfterTarget(state, state.activePlayerId),
+    nextResponderIndex: 0,
+  };
+  state.auditLog.push(`${actorId}使用秘密下达并宣布：${word}`);
+  assertGameStateInvariants(state);
+}
+
+export function claimNoSecretOrderMatch(state: GameState, actorId: PlayerId): void {
+  const pending = state.pendingSecretOrder;
+  if (
+    state.phase !== "preTransmission" ||
+    !pending ||
+    pending.stage !== "selection" ||
+    pending.countered ||
+    !pending.requiredColor ||
+    actorId !== state.activePlayerId
+  ) throw new Error("当前没有可验证的秘密下达");
+  const matching = state.players[actorId].hand.some((id) =>
+    cardMatchesSecretOrder(cardById(id), pending.requiredColor!),
+  );
+  if (matching) throw new Error("手牌中存在符合秘密下达颜色的牌");
+  pending.verifiedNoMatch = true;
+  state.auditLog.push(`${actorId}声明无匹配牌并通过服务器验证`);
+  assertGameStateInvariants(state);
+}
+
+function cardMatchesSecretOrder(card: PhysicalCard, color: SingleColor): boolean {
+  return card.color === color || (card.color === "红蓝" && color !== "黑");
 }
 
 function requireActiveFunctionCard(
@@ -1166,6 +1374,31 @@ export function playDangerousIntelligence(
   assertGameStateInvariants(state);
 }
 
+export function playProbe(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  targetId: PlayerId,
+): void {
+  requireActiveFunctionCard(state, actorId, cardId, "试探");
+  if (targetId === actorId || !state.players[targetId]?.alive) {
+    throw new Error("试探必须选择另一名存活玩家");
+  }
+  const card = cardById(cardId);
+  const kind =
+    card.variant?.kind === "probeIdentity"
+      ? "probeIdentity"
+      : card.variant?.kind === "probeDrawDiscard"
+        ? "probeDrawDiscard"
+        : undefined;
+  if (!kind) throw new Error("试探缺少具体版本");
+  beginActiveFunctionAction(state, actorId, cardId, kind, targetId);
+  state.publicDiscard.splice(state.publicDiscard.indexOf(cardId), 1);
+  state.removedProbes.push(cardId);
+  state.auditLog.push(`${actorId}对${targetId}使用试探，等待响应`);
+  assertGameStateInvariants(state);
+}
+
 export function playSeparationOnFunction(
   state: GameState,
   actorId: PlayerId,
@@ -1177,7 +1410,12 @@ export function playSeparationOnFunction(
   if (!action || !window || window.kind !== "function" || action.stage !== "reactions") {
     throw new Error("当前没有可被离间改换目标的功能牌行动");
   }
-  if (action.kind !== "publicText" && action.kind !== "dangerousIntelligence") {
+  if (
+    action.kind !== "publicText" &&
+    action.kind !== "dangerousIntelligence" &&
+    action.kind !== "probeIdentity" &&
+    action.kind !== "probeDrawDiscard"
+  ) {
     throw new Error("该功能牌行动不能被离间改换目标");
   }
   if (window.responderOrder[window.nextResponderIndex] !== actorId) {
@@ -1197,7 +1435,8 @@ export function playSeparationOnFunction(
     targetId === action.originalTargetPlayerId ||
     targetId === action.sourcePlayerId ||
     !state.players[targetId]?.alive ||
-    state.players[targetId].hand.length === 0
+    ((action.kind === "publicText" || action.kind === "dangerousIntelligence") &&
+      state.players[targetId].hand.length === 0)
   ) {
     throw new Error("离间必须选择另一名拥有手牌的合法存活目标");
   }
@@ -1280,7 +1519,7 @@ function finishActiveFunctionAction(state: GameState): void {
         state.auditLog.push(`${source.id}完成与${target.id}的公开文本交换`);
       }
     }
-  } else {
+  } else if (action.kind === "dangerousIntelligence") {
     if (target.hand.length === 0) {
       state.auditLog.push(`${source.id}的危险情报结算；目标已无手牌可弃置`);
       state.activeFunctionAction = undefined;
@@ -1292,7 +1531,86 @@ function finishActiveFunctionAction(state: GameState): void {
     state.auditLog.push(`${source.id}私下查看${target.id}的手牌`);
     assertGameStateInvariants(state);
     return;
+  } else {
+    const probe = cardById(action.sourceCardId);
+    if (probe.variant?.kind === "probeIdentity") {
+      action.stage = "awaitingProbeChoice";
+      state.auditLog.push(`${target.id}须回应试探`);
+      assertGameStateInvariants(state);
+      return;
+    }
+    if (probe.variant?.kind !== "probeDrawDiscard") {
+      throw new Error("试探缺少具体版本");
+    }
+    if (target.faction === probe.variant.drawFaction) {
+      const drawn = drawCards(state, target.id, 1);
+      state.auditLog.push(`${target.id}因试探摸${drawn.length}张牌`);
+    } else if (target.hand.length === 0) {
+      state.auditLog.push(`${target.id}因试探须弃牌，但其没有手牌`);
+    } else {
+      action.stage = "awaitingProbeDiscard";
+      state.auditLog.push(`${target.id}须因试探弃置一张手牌`);
+      assertGameStateInvariants(state);
+      return;
+    }
   }
+  state.activeFunctionAction = undefined;
+  state.activeFunctionStack = [];
+  assertGameStateInvariants(state);
+}
+
+export function chooseProbeIdentityResponse(
+  state: GameState,
+  actorId: PlayerId,
+  choice: "announce" | "giveRandom",
+): void {
+  const action = state.activeFunctionAction;
+  if (
+    !action ||
+    action.kind !== "probeIdentity" ||
+    action.stage !== "awaitingProbeChoice" ||
+    action.targetPlayerId !== actorId
+  ) {
+    throw new Error("当前没有可由该玩家回应的身份试探");
+  }
+  const target = state.players[actorId];
+  const source = state.players[action.sourcePlayerId];
+  const probe = cardById(action.sourceCardId);
+  if (probe.variant?.kind !== "probeIdentity") throw new Error("身份试探映射无效");
+  if (choice === "giveRandom") {
+    if (target.hand.length === 0) throw new Error("没有手牌时必须公开身份代码");
+    const index = Math.floor(nextStateRandom(state) * target.hand.length);
+    const [given] = target.hand.splice(index, 1);
+    if (!given) throw new Error("试探随机取牌失败");
+    source.hand.push(given);
+    state.auditLog.push(`${actorId}选择因试探随机交出一张手牌`);
+  } else {
+    const code: ProbeCode = probe.variant.mapping[target.faction];
+    state.auditLog.push(`${actorId}因试探公开身份代码：${code}`);
+  }
+  state.activeFunctionAction = undefined;
+  state.activeFunctionStack = [];
+  assertGameStateInvariants(state);
+}
+
+export function chooseProbeDiscard(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+): void {
+  const action = state.activeFunctionAction;
+  if (
+    !action ||
+    action.kind !== "probeDrawDiscard" ||
+    action.stage !== "awaitingProbeDiscard" ||
+    action.targetPlayerId !== actorId
+  ) throw new Error("当前没有可由该玩家执行的试探弃牌");
+  const target = state.players[actorId];
+  const index = target.hand.indexOf(cardId);
+  if (index < 0) throw new Error("只能弃置自己的手牌");
+  target.hand.splice(index, 1);
+  state.publicDiscard.push(cardId);
+  state.auditLog.push(`${actorId}因试探弃置一张手牌`);
   state.activeFunctionAction = undefined;
   state.activeFunctionStack = [];
   assertGameStateInvariants(state);
@@ -1350,7 +1668,11 @@ export function startTransmission(
   cardId: PhysicalCardId,
   options: StartTransmissionOptions = {},
 ): void {
-  if (state.phase !== "initialized" || state.activeFunctionAction) {
+  if (
+    (state.phase !== "initialized" && state.phase !== "preTransmission") ||
+    state.activeFunctionAction ||
+    state.reactionWindow
+  ) {
     throw new Error("当前不能开始传递情报");
   }
   if (actorId !== state.activePlayerId) throw new Error("只有当前玩家可以传递情报");
@@ -1359,6 +1681,21 @@ export function startTransmission(
   if (actor.hand.length > 7) throw new Error("开始传递前必须将手牌弃至7张");
   if (!actor.hand.includes(cardId)) throw new Error("该牌不在当前玩家手中");
   const card = cardById(cardId);
+  const order = state.pendingSecretOrder;
+  if (state.phase === "preTransmission") {
+    if (!order || order.stage !== "selection") {
+      throw new Error("秘密下达窗口尚未结束");
+    }
+    if (
+      order.sourceCardId &&
+      !order.countered &&
+      order.requiredColor &&
+      !order.verifiedNoMatch &&
+      !cardMatchesSecretOrder(card, order.requiredColor)
+    ) {
+      throw new Error("必须传递符合秘密下达颜色的牌，或先声明无匹配牌");
+    }
+  }
 
   if (
     options.method !== undefined &&
@@ -1418,6 +1755,8 @@ export function startTransmission(
     faceUp: method === "文本",
   };
   state.phase = "transmitting";
+  state.pendingSecretOrder = undefined;
+  state.secretOrderStack = [];
   beginNormalReceiptCycle(state, intendedRecipientId, false);
   state.auditLog.push(
     `${actorId}开始以${method}传递情报，当前接收者：${intendedRecipientId}`,
@@ -1968,8 +2307,32 @@ export function passReaction(state: GameState, actorId: PlayerId): void {
   window.nextResponderIndex += 1;
   state.auditLog.push(`${actorId}放弃响应`);
   if (window.nextResponderIndex === window.responderOrder.length) {
-    if (window.kind === "function") {
+    if (window.kind === "secretOrder") {
+      const pending = state.pendingSecretOrder;
+      if (!pending) throw new Error("秘密下达窗口状态无效");
+      pending.stage = "selection";
+      state.reactionWindow = undefined;
+      state.secretOrderStack = [];
+      state.auditLog.push(
+        pending.sourceCardId && pending.countered
+          ? "秘密下达被识破，颜色限制取消"
+          : "秘密下达窗口结束",
+      );
+      assertGameStateInvariants(state);
+    } else if (window.kind === "function") {
       finishActiveFunctionAction(state);
+    } else if (window.kind === "decrypt") {
+      const transmission = state.transmission;
+      if (!transmission) throw new Error("破译响应缺少待传情报");
+      if (transmission.pendingDecrypt) {
+        transmission.decryptedById = transmission.pendingDecrypt.playerId;
+        transmission.pendingDecrypt = undefined;
+        state.auditLog.push(`${transmission.decryptedById}完成破译`);
+      }
+      state.reactionWindow = undefined;
+      state.interactionStack = [];
+      transmission.receiptStage = "decision";
+      assertGameStateInvariants(state);
     } else if (window.kind === "transfer") {
       if (state.transmission?.pendingTransfer) {
         resolveTransfer(state);
@@ -2020,6 +2383,49 @@ export function passReaction(state: GameState, actorId: PlayerId): void {
   } else {
     assertGameStateInvariants(state);
   }
+}
+
+export function playDecrypt(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+): void {
+  const transmission = state.transmission;
+  const window = state.reactionWindow;
+  if (
+    state.phase !== "transmitting" ||
+    !transmission ||
+    !window ||
+    window.kind !== "intelligence" ||
+    window.responderOrder[window.nextResponderIndex] !== actorId ||
+    transmission.intendedRecipientId !== actorId ||
+    transmission.locked ||
+    transmission.interceptorCommitted ||
+    transmission.method === "文本"
+  ) throw new Error("当前接收者没有可用的破译机会");
+  const actor = state.players[actorId];
+  const index = actor?.hand.indexOf(cardId) ?? -1;
+  if (!actor?.alive || index < 0 || cardById(cardId).name !== "破译") {
+    throw new Error("必须使用自己手中的破译牌");
+  }
+  actor.hand.splice(index, 1);
+  state.publicDiscard.push(cardId);
+  pushCardActionFrame(state, {
+    kind: "decrypt",
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    targetPlayerId: actorId,
+    snapshot: captureInteractionSnapshot(transmission),
+  });
+  transmission.pendingDecrypt = { sourceCardId: cardId, playerId: actorId };
+  state.reactionWindow = {
+    kind: "decrypt",
+    affectedPlayerId: actorId,
+    responderOrder: reactionOrderAfterTarget(state, actorId),
+    nextResponderIndex: 0,
+  };
+  state.auditLog.push(`${actorId}使用破译，等待响应`);
+  assertGameStateInvariants(state);
 }
 
 export function playIntercept(
@@ -2077,6 +2483,10 @@ export function playCounter(
   cardId: PhysicalCardId,
   targetInteractionId: string,
 ): void {
+  if (state.reactionWindow?.kind === "secretOrder") {
+    playCounterOnSecretOrder(state, actorId, cardId, targetInteractionId);
+    return;
+  }
   if (state.reactionWindow?.kind === "function") {
     playCounterOnFunction(state, actorId, cardId, targetInteractionId);
     return;
@@ -2129,6 +2539,58 @@ export function playCounter(
   state.auditLog.push(
     `${actorId}使用识破，反制${target.sourcePlayerId}的${cardById(target.sourceCardId).name}`,
   );
+  assertGameStateInvariants(state);
+}
+
+function playCounterOnSecretOrder(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  targetInteractionId: string,
+): void {
+  const pending = state.pendingSecretOrder;
+  const window = state.reactionWindow;
+  const target = state.secretOrderStack.at(-1);
+  if (
+    state.phase !== "preTransmission" ||
+    !pending ||
+    pending.stage !== "reactions" ||
+    !window ||
+    !target ||
+    window.responderOrder[window.nextResponderIndex] !== actorId ||
+    target.id !== targetInteractionId
+  ) throw new Error("当前没有可被识破的秘密下达行动");
+  const actor = state.players[actorId];
+  const index = actor?.hand.indexOf(cardId) ?? -1;
+  if (!actor?.alive || index < 0 || cardById(cardId).name !== "识破") {
+    throw new Error("必须使用自己手中的识破牌");
+  }
+  if (target.sourcePlayerId === actorId) throw new Error("不能识破自己的卡牌行动");
+  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+    throw new Error("当前玩家必须至少保留一张手牌用于传递");
+  }
+  const before = { countered: pending.countered };
+  actor.hand.splice(index, 1);
+  state.publicDiscard.push(cardId);
+  pending.countered = target.snapshot.countered;
+  const sequence = state.nextInteractionSequence++;
+  state.secretOrderStack.push({
+    id: `interaction-${sequence}`,
+    sequence,
+    kind: "counter",
+    sourcePlayerId: actorId,
+    sourceCardId: cardId,
+    targetPlayerId: target.sourcePlayerId,
+    targetInteractionId: target.id,
+    snapshot: before,
+  });
+  state.reactionWindow = {
+    kind: "secretOrder",
+    affectedPlayerId: target.sourcePlayerId,
+    responderOrder: reactionOrderAfterTarget(state, target.sourcePlayerId),
+    nextResponderIndex: 0,
+  };
+  state.auditLog.push(`${actorId}使用识破反制秘密下达行动`);
   assertGameStateInvariants(state);
 }
 
@@ -2270,7 +2732,9 @@ export function projectGameForPlayer(
   const transmission = state.transmission;
   const canSeePendingCard =
     transmission &&
-    (transmission.faceUp || transmission.senderId === viewerId);
+    (transmission.faceUp ||
+      transmission.senderId === viewerId ||
+      transmission.decryptedById === viewerId);
   const isCurrentRecipient = transmission?.intendedRecipientId === viewerId;
   const isReturnedForViewer =
     transmission?.returnedToSender === true &&
@@ -2364,11 +2828,24 @@ export function projectGameForPlayer(
           .filter((cardId) => cardById(cardId).name === "调虎离山")
           .map((cardId) => ({ type: "PLAY_LURE" as const, cardId }))
       : [];
+  const decryptActions =
+    currentReactionResponderId === viewerId &&
+    state.reactionWindow?.kind === "intelligence" &&
+    transmission?.intendedRecipientId === viewerId &&
+    transmission.method !== "文本" &&
+    !transmission.locked &&
+    !transmission.interceptorCommitted
+      ? viewer.hand
+          .filter((cardId) => cardById(cardId).name === "破译")
+          .map((cardId) => ({ type: "PLAY_DECRYPT" as const, cardId }))
+      : [];
   const interceptedRecipientMustAccept =
     transmission?.interceptorCommitted === true;
   const topInteraction =
     state.reactionWindow?.kind === "function"
       ? state.activeFunctionStack.at(-1)
+      : state.reactionWindow?.kind === "secretOrder"
+        ? state.secretOrderStack.at(-1)
       : state.interactionStack.at(-1);
   const counterActions =
     currentReactionResponderId === viewerId &&
@@ -2409,6 +2886,22 @@ export function projectGameForPlayer(
           )
       : [];
   const activeFunctionActions: PlayerProjection["legalActions"] = [];
+  const secretOrderActions: PlayerProjection["legalActions"] =
+    currentReactionResponderId === viewerId &&
+    state.reactionWindow?.kind === "secretOrder" &&
+    state.pendingSecretOrder?.stage === "offering" &&
+    viewerId !== state.activePlayerId
+      ? viewer.hand.flatMap((cardId) => {
+          const card = cardById(cardId);
+          return card.variant?.kind === "secretOrder"
+            ? (["听风", "看雨", "日落"] as const).map((word) => ({
+                type: "PLAY_SECRET_ORDER" as const,
+                cardId,
+                word,
+              }))
+            : [];
+        })
+      : [];
   if (
     state.phase === "initialized" &&
     state.activePlayerId === viewerId &&
@@ -2435,6 +2928,12 @@ export function projectGameForPlayer(
               ? { type: "PLAY_PUBLIC_TEXT", cardId, targetId }
               : { type: "PLAY_DANGEROUS_INTELLIGENCE", cardId, targetId },
           );
+        }
+      } else if (name === "试探") {
+        for (const targetId of state.seatOrder) {
+          if (targetId !== viewerId && state.players[targetId].alive) {
+            activeFunctionActions.push({ type: "PLAY_PROBE", cardId, targetId });
+          }
         }
       }
     }
@@ -2478,6 +2977,7 @@ export function projectGameForPlayer(
           receiptStage: transmission.receiptStage,
           locked: transmission.locked,
           faceUp: transmission.faceUp,
+          decrypted: transmission.decryptedById === viewerId,
           card: canSeePendingCard
             ? projectedCardById(transmission.cardId)
             : undefined,
@@ -2524,6 +3024,23 @@ export function projectGameForPlayer(
           choices: [...state.pendingPublicTextReceipt.choices],
         }
       : undefined,
+    pendingSecretOrder: state.pendingSecretOrder
+      ? {
+          stage: state.pendingSecretOrder.stage,
+          targetPlayerId: state.pendingSecretOrder.targetPlayerId,
+          sourcePlayerId: state.pendingSecretOrder.sourcePlayerId,
+          word: state.pendingSecretOrder.word,
+          requiredColor:
+            state.pendingSecretOrder.sourcePlayerId === viewerId
+              ? state.pendingSecretOrder.requiredColor
+              : undefined,
+          inspectedHand:
+            state.pendingSecretOrder.verifiedNoMatch &&
+            state.pendingSecretOrder.sourcePlayerId === viewerId
+              ? state.players[state.activePlayerId].hand.map(projectedCardById)
+              : undefined,
+        }
+      : undefined,
     legalActions: mustDiscardForHandLimit
       ? viewer.hand.map((cardId) => ({
           type: "DISCARD_FOR_HAND_LIMIT" as const,
@@ -2538,15 +3055,33 @@ export function projectGameForPlayer(
             ...interceptActions,
             ...swapActions,
             ...lureActions,
+            ...decryptActions,
             ...counterActions,
             ...functionSeparationActions,
             ...transferActions,
+            ...secretOrderActions,
           ]
       : activeFunctionAction?.kind === "dangerousIntelligence" &&
           activeFunctionAction.stage === "awaitingDiscard" &&
           activeFunctionAction.sourcePlayerId === viewerId
         ? state.players[activeFunctionAction.targetPlayerId].hand.map((cardId) => ({
             type: "CHOOSE_DANGEROUS_DISCARD" as const,
+            cardId,
+          }))
+      : activeFunctionAction?.kind === "probeIdentity" &&
+          activeFunctionAction.stage === "awaitingProbeChoice" &&
+          activeFunctionAction.targetPlayerId === viewerId
+        ? [
+            { type: "CHOOSE_PROBE_IDENTITY" as const, choice: "announce" as const },
+            ...(viewer.hand.length > 0
+              ? [{ type: "CHOOSE_PROBE_IDENTITY" as const, choice: "giveRandom" as const }]
+              : []),
+          ]
+      : activeFunctionAction?.kind === "probeDrawDiscard" &&
+          activeFunctionAction.stage === "awaitingProbeDiscard" &&
+          activeFunctionAction.targetPlayerId === viewerId
+        ? viewer.hand.map((cardId) => ({
+            type: "CHOOSE_PROBE_DISCARD" as const,
             cardId,
           }))
       : state.pendingPublicTextReceipt?.recipientId === viewerId
@@ -2570,6 +3105,39 @@ export function projectGameForPlayer(
               ? [{ type: "DECLINE_INTELLIGENCE" as const }]
               : []),
           ]
+      : state.phase === "preTransmission" &&
+          state.pendingSecretOrder?.stage === "offering" &&
+          currentReactionResponderId === viewerId
+        ? [
+            { type: "PASS_REACTION" as const },
+            ...(viewerId === state.activePlayerId
+              ? []
+              : viewer.hand.flatMap((cardId) => {
+                  const card = cardById(cardId);
+                  return card.variant?.kind === "secretOrder"
+                    ? (["听风", "看雨", "日落"] as const).map((word) => ({
+                        type: "PLAY_SECRET_ORDER" as const,
+                        cardId,
+                        word,
+                      }))
+                    : [];
+                })),
+          ]
+      : state.phase === "preTransmission" &&
+          state.pendingSecretOrder?.stage === "selection" &&
+          viewerId === state.activePlayerId &&
+          state.pendingSecretOrder.sourceCardId &&
+          !state.pendingSecretOrder.countered &&
+          !state.pendingSecretOrder.verifiedNoMatch &&
+          state.pendingSecretOrder.requiredColor &&
+          !viewer.hand.some((id) =>
+            cardMatchesSecretOrder(cardById(id), state.pendingSecretOrder!.requiredColor!),
+          )
+        ? [{ type: "CLAIM_NO_SECRET_ORDER_MATCH" }]
+      : state.phase === "initialized" &&
+          viewerId === state.activePlayerId &&
+          !activeFunctionAction
+        ? [...activeFunctionActions, { type: "ENTER_TRANSMISSION_PHASE" }]
         : activeFunctionActions,
   };
 }

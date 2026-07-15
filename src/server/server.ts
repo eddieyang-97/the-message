@@ -5,6 +5,7 @@ import express, { type Express } from "express";
 import { Server } from "socket.io";
 
 import { RoomError, RoomService, type StartRoomResult } from "../room";
+import { GameSessionError, GameSessionService } from "./game-session";
 import {
   projectRoomForPlayer,
   type Ack,
@@ -36,6 +37,8 @@ export interface CreateGameServerOptions {
   staticDirectory?: string;
   corsOrigin?: string | string[];
   hooks?: GameServerHooks;
+  gameSessionService?: GameSessionService;
+  gameSeedGenerator?: () => number;
 }
 
 export interface GameServer {
@@ -43,6 +46,7 @@ export interface GameServer {
   httpServer: HttpServer;
   io: FengshengSocketServer;
   roomService: RoomService;
+  gameSessionService: GameSessionService;
   listen(port: number, hostname?: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -51,6 +55,9 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
   const app = options.app ?? express();
   const httpServer = options.httpServer ?? createHttpServer(app);
   const roomService = options.roomService ?? new RoomService();
+  const gameSessionService = options.gameSessionService ?? new GameSessionService();
+  const gameSeedGenerator =
+    options.gameSeedGenerator ?? (() => Math.floor(Math.random() * 0x1_0000_0000));
   const io = new Server<
     ClientToServerEvents,
     ServerToClientEvents,
@@ -83,6 +90,17 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     for (const socket of sockets) {
       const playerId = socket.data.playerId;
       if (playerId) socket.emit("room:snapshot", projectRoomForPlayer(room, playerId));
+    }
+  }
+
+  async function broadcastGame(roomCode: string): Promise<void> {
+    if (!gameSessionService.has(roomCode)) return;
+    const sockets = await io.in(roomCode).fetchSockets();
+    for (const roomSocket of sockets) {
+      const playerId = roomSocket.data.playerId;
+      if (playerId) {
+        roomSocket.emit("game:snapshot", gameSessionService.project(roomCode, playerId));
+      }
     }
   }
 
@@ -189,6 +207,12 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           },
         });
         await broadcastRoom(entry.room.code);
+        if (gameSessionService.has(entry.room.code)) {
+          socket.emit(
+            "game:snapshot",
+            gameSessionService.project(entry.room.code, entry.playerId),
+          );
+        }
       } catch (error) {
         acknowledge(failure(error));
       }
@@ -299,6 +323,11 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           identity.playerId,
           request.seatMode,
         );
+        const game = gameSessionService.create(
+          result.room.code,
+          result.seatOrder,
+          gameSeedGenerator(),
+        );
         await options.hooks?.onRoomStarted?.(result);
         const sockets = await io.in(result.room.code).fetchSockets();
         let requesterResult: SafeStartRoomResult | undefined;
@@ -308,7 +337,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           const safeResult: SafeStartRoomResult = {
             room: projectRoomForPlayer(result.room, playerId),
             seatOrder: [...result.seatOrder],
-            initialActivePlayerId: result.initialActivePlayerId,
+            initialActivePlayerId: game.activePlayerId,
           };
           roomSocket.emit("room:started", safeResult);
           if (roomSocket.id === socket.id) requesterResult = safeResult;
@@ -319,9 +348,10 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
             requesterResult ?? {
               room: projectRoomForPlayer(result.room, identity.playerId),
               seatOrder: [...result.seatOrder],
-              initialActivePlayerId: result.initialActivePlayerId,
+              initialActivePlayerId: game.activePlayerId,
             },
         });
+        await broadcastGame(result.room.code);
       } catch (error) {
         acknowledge(failure(error));
       }
@@ -348,14 +378,20 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       if (room) await broadcastRoom(room.code);
     });
 
-    socket.on("game:command", (_request, acknowledge) => {
-      acknowledge({
-        ok: false,
-        error: {
-          code: "GAME_COMMAND_NOT_IMPLEMENTED",
-          message: "游戏指令传输尚未连接到规则引擎",
-        },
-      });
+    socket.on("game:command", async (request, acknowledge) => {
+      try {
+        const identity = requireIdentity();
+        roomService.assertGameplayCanProgress(identity.roomCode);
+        const projection = gameSessionService.dispatch(
+          identity.roomCode,
+          identity.playerId,
+          request.command,
+        );
+        acknowledge({ ok: true, data: projection });
+        await broadcastGame(identity.roomCode);
+      } catch (error) {
+        acknowledge(failure(error));
+      }
     });
 
     socket.on("disconnect", () => {
@@ -377,6 +413,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     httpServer,
     io,
     roomService,
+    gameSessionService,
     listen: (port, hostname) =>
       new Promise((resolveListen, reject) => {
         const onError = (error: Error): void => reject(error);
@@ -406,7 +443,11 @@ class TransportFailure extends Error {
 }
 
 function failure(error: unknown): Ack<never> {
-  if (error instanceof RoomError || error instanceof TransportFailure) {
+  if (
+    error instanceof RoomError ||
+    error instanceof TransportFailure ||
+    error instanceof GameSessionError
+  ) {
     return { ok: false, error: { code: error.code, message: error.message } };
   }
   return {

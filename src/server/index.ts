@@ -14,3 +14,8 @@ export {
   type SafeStartRoomResult,
   type ServerToClientEvents,
 } from "./protocol";
+export {
+  GameSessionError,
+  GameSessionService,
+  type GameCommand,
+} from "./game-session";

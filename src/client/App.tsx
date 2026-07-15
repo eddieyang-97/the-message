@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import type { PlayerProjection } from "../game/engine";
 import type { RoomEntryResult, RoomSnapshot } from "../room";
+import type { GameCommand } from "../server";
+import { GameTable } from "./GameTable";
 import { LandingPage } from "./LandingPage";
 import type {
   CreateRoomInput,
@@ -66,6 +69,8 @@ export function App() {
   const [busyAction, setBusyAction] = useState<string>();
   const [errorMessage, setErrorMessage] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [game, setGame] = useState<PlayerProjection>();
+  const [connected, setConnected] = useState(true);
 
   const enterRoom = useCallback((entry: RoomEntryResult) => {
     const nextCredentials = {
@@ -111,7 +116,11 @@ export function App() {
     setNotice("游戏已开始");
   }), []);
 
+  useEffect(() => client.onGameSnapshot(setGame), []);
+  useEffect(() => client.onDisconnect(() => setConnected(false)), []);
+
   useEffect(() => client.onConnect(() => {
+    setConnected(true);
     if (!room || !credentials) return;
     void client.reconnect({ roomCode: room.code, reconnectToken: credentials.reconnectToken })
       .then(enterRoom)
@@ -158,6 +167,21 @@ export function App() {
         onBackHome={goHome}
         onCreateRoom={createRoom}
         onJoinRoom={joinRoom}
+      />
+    );
+  }
+
+  if (game) {
+    return (
+      <GameTable
+        busy={busyAction === "game-command"}
+        connected={connected}
+        errorMessage={errorMessage}
+        onCommand={(command: GameCommand) => void runAction("game-command", async () => {
+          const updated = await client.sendGameCommand(command);
+          setGame(updated);
+        })}
+        projection={game}
       />
     );
   }
