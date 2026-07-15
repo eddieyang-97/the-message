@@ -25,6 +25,7 @@ export interface TransmissionState {
   intendedRecipientId: PlayerId;
   returnedToSender: boolean;
   interceptorCommitted: boolean;
+  transferredRecipientCommitted: boolean;
   receiptCycle: number;
   receiptStage: ReceiptStage;
   lockOfferUsed: boolean;
@@ -49,7 +50,7 @@ export interface TransmissionState {
 }
 
 export type WinnerState =
-  | { kind: "faction"; faction: "军情" | "潜伏" }
+  | { kind: "faction"; faction: Faction }
   | { kind: "agent"; playerId: PlayerId };
 
 export interface ReactionWindow {
@@ -121,6 +122,7 @@ export interface ReversibleInteractionSnapshot {
   intendedRecipientId: PlayerId;
   returnedToSender: boolean;
   interceptorCommitted: boolean;
+  transferredRecipientCommitted: boolean;
   receiptStage: ReceiptStage;
   locked: boolean;
   receiptCycle: number;
@@ -222,6 +224,7 @@ export interface GameState {
   mode: GameMode;
   phase:
     | "initialized"
+    | "discardingForTransmission"
     | "preTransmission"
     | "transmitting"
     | "resolvingReceipt"
@@ -280,6 +283,7 @@ export interface PlayerProjection {
     intendedRecipientId: PlayerId;
     card?: PhysicalCard;
     returnedToSender: boolean;
+    transferredRecipientCommitted: boolean;
     receiptStage: ReceiptStage;
     locked: boolean;
     faceUp: boolean;
@@ -563,7 +567,7 @@ export function assertGameStateInvariants(state: GameState): void {
     throw new Error("当前玩家不在座位列表中");
   }
   if (
-    ["initialized", "transmitting", "awaitingTurnStartDraw"].includes(
+    ["initialized", "discardingForTransmission", "transmitting", "awaitingTurnStartDraw"].includes(
       state.phase,
     ) &&
     !state.players[state.activePlayerId]?.alive
@@ -971,6 +975,12 @@ export function assertGameStateInvariants(state: GameState): void {
     ) {
       throw new Error("原发送者不能成为承诺接收的截获者");
     }
+    if (
+      transmission.transferredRecipientCommitted &&
+      transmission.intendedRecipientId === transmission.senderId
+    ) {
+      throw new Error("转移后的承诺接收者不能是原发送者");
+    }
     if (transmission.pendingTransfer) {
       const pending = transmission.pendingTransfer;
       if (
@@ -1108,6 +1118,7 @@ function captureInteractionSnapshot(
     intendedRecipientId: transmission.intendedRecipientId,
     returnedToSender: transmission.returnedToSender,
     interceptorCommitted: transmission.interceptorCommitted,
+    transferredRecipientCommitted: transmission.transferredRecipientCommitted,
     receiptStage: transmission.receiptStage,
     locked: transmission.locked,
     receiptCycle: transmission.receiptCycle,
@@ -1135,6 +1146,7 @@ function restoreInteractionSnapshot(
   transmission.intendedRecipientId = snapshot.intendedRecipientId;
   transmission.returnedToSender = snapshot.returnedToSender;
   transmission.interceptorCommitted = snapshot.interceptorCommitted;
+  transmission.transferredRecipientCommitted = snapshot.transferredRecipientCommitted;
   transmission.receiptStage = snapshot.receiptStage;
   transmission.locked = snapshot.locked;
   transmission.receiptCycle = snapshot.receiptCycle;
@@ -1188,6 +1200,7 @@ function beginNormalReceiptCycle(
   transmission.intendedRecipientId = recipientId;
   transmission.returnedToSender = returnedToSender;
   transmission.interceptorCommitted = false;
+  transmission.transferredRecipientCommitted = false;
   transmission.receiptCycle += 1;
   transmission.lockOfferUsed = returnedToSender;
   transmission.locked = false;
@@ -1248,13 +1261,34 @@ function clearUnresolvedTurnState(state: GameState, discardTransmission: boolean
   state.burnContexts = [];
 }
 
-function soleSurvivorWinner(state: GameState): WinnerState | undefined {
+function survivingFactionWinner(state: GameState): WinnerState | undefined {
   const survivors = state.seatOrder.filter((id) => state.players[id].alive);
-  if (survivors.length !== 1) return undefined;
-  const survivor = state.players[survivors[0]];
-  return survivor.faction === "特工"
-    ? { kind: "agent", playerId: survivor.id }
-    : { kind: "faction", faction: survivor.faction };
+  if (survivors.length === 0) return undefined;
+  const survivingFactions = new Set(
+    survivors.map((id) => state.players[id].faction),
+  );
+  if (survivingFactions.size !== 1) return undefined;
+  const faction = state.players[survivors[0]].faction;
+  if (faction === "特工") {
+    return survivors.length === 1
+      ? { kind: "agent", playerId: survivors[0] }
+      : undefined;
+  }
+  return { kind: "faction", faction };
+}
+
+function finishFactionEliminationVictory(
+  state: GameState,
+  discardTransmission: boolean,
+): boolean {
+  const winner = survivingFactionWinner(state);
+  if (!winner) return false;
+  clearUnresolvedTurnState(state, discardTransmission);
+  state.winner = winner;
+  state.phase = "gameOver";
+  state.auditLog.push("其他阵营已全部死亡，游戏立即结束");
+  assertGameStateInvariants(state);
+  return true;
 }
 
 function rebuildReactionPriorityAfterDeath(
@@ -1320,9 +1354,11 @@ export function resolveHostImposedDeath(
 
   const wasActiveSender = playerId === state.activePlayerId;
   const wasIntendedRecipient = state.transmission?.intendedRecipientId === playerId;
-  const wasLockedOrIntercepted = Boolean(
+  const wasCommittedRecipient = Boolean(
     wasIntendedRecipient &&
-      (state.transmission?.locked || state.transmission?.interceptorCommitted),
+      (state.transmission?.locked ||
+        state.transmission?.interceptorCommitted ||
+        state.transmission?.transferredRecipientCommitted),
   );
   const wasFunctionTarget = state.activeFunctionAction?.targetPlayerId === playerId;
   const wasSecretOrderSource = state.pendingSecretOrder?.sourcePlayerId === playerId;
@@ -1334,15 +1370,7 @@ export function resolveHostImposedDeath(
   pruneSuspendedBurnPrioritiesAfterDeath(state, playerId);
   state.auditLog.push(`${playerId}被房主判定死亡，阵营公开为${player.faction}`);
 
-  const soleWinner = soleSurvivorWinner(state);
-  if (soleWinner) {
-    clearUnresolvedTurnState(state, Boolean(state.transmission));
-    state.winner = soleWinner;
-    state.phase = "gameOver";
-    state.auditLog.push("仅剩一名存活玩家，游戏立即结束");
-    assertGameStateInvariants(state);
-    return;
-  }
+  if (finishFactionEliminationVictory(state, Boolean(state.transmission))) return;
 
   // Active-sender death has precedence over returned intelligence where the
   // sender is also the current intended recipient.
@@ -1356,9 +1384,9 @@ export function resolveHostImposedDeath(
 
   if (wasIntendedRecipient && state.transmission) {
     cancelPendingBurnsForDeathCleanup(state);
-    if (wasLockedOrIntercepted) {
+    if (wasCommittedRecipient) {
       clearUnresolvedTurnState(state, true);
-      state.auditLog.push(`${playerId}死亡，锁定或截获中的待传情报被公开弃置`);
+      state.auditLog.push(`${playerId}死亡，必须接收的待传情报被公开弃置`);
       advanceToNextTurn(state);
     } else {
       const transmission = state.transmission;
@@ -1436,8 +1464,14 @@ export function enterTransmissionPhase(state: GameState, actorId: PlayerId): voi
     throw new Error("只有当前存活玩家可以进入传递阶段");
   }
   if (state.players[actorId].hand.length > 7) {
-    throw new Error("进入传递阶段前必须将手牌弃至7张");
+    state.phase = "discardingForTransmission";
+    assertGameStateInvariants(state);
+    return;
   }
+  beginPreTransmissionPhase(state, actorId);
+}
+
+function beginPreTransmissionPhase(state: GameState, actorId: PlayerId): void {
   state.phase = "preTransmission";
   state.pendingSecretOrder = {
     stage: "offering",
@@ -1619,6 +1653,9 @@ export function playConfidentialFile(
   cardId: PhysicalCardId,
 ): void {
   requireActiveFunctionCard(state, actorId, cardId, "机密文件");
+  if (countTrueIntelligenceOnField(state) < 4) {
+    throw new Error("场上至少需要4张真情报才能使用机密文件");
+  }
   beginActiveFunctionAction(state, actorId, cardId, "confidentialFile", actorId);
   state.auditLog.push(`${actorId}使用机密文件，等待响应`);
   assertGameStateInvariants(state);
@@ -1783,12 +1820,7 @@ function finishActiveFunctionAction(state: GameState): void {
     const drawn = drawCards(state, source.id, count);
     state.auditLog.push(`${source.id}的增援结算，摸${drawn.length}张牌`);
   } else if (action.kind === "confidentialFile") {
-    const trueIntelligenceCount = Object.values(state.players).reduce(
-      (total, player) =>
-        total +
-        player.intelligence.filter((id) => cardById(id).color !== "黑").length,
-      0,
-    );
+    const trueIntelligenceCount = countTrueIntelligenceOnField(state);
     const requested = trueIntelligenceCount >= 7 ? 3 : trueIntelligenceCount >= 4 ? 2 : 0;
     const drawn = drawCards(state, source.id, requested);
     state.auditLog.push(
@@ -1953,7 +1985,7 @@ export function discardForHandLimit(
   actorId: PlayerId,
   cardId: PhysicalCardId,
 ): void {
-  if (state.phase !== "initialized" || state.activeFunctionAction) {
+  if (state.phase !== "discardingForTransmission" || state.activeFunctionAction) {
     throw new Error("当前不能执行传递前弃牌");
   }
   if (actorId !== state.activePlayerId) throw new Error("只有当前玩家需要执行手牌上限弃牌");
@@ -1966,7 +1998,11 @@ export function discardForHandLimit(
   player.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
   state.auditLog.push(`${actorId}因手牌上限弃置一张牌：${cardById(cardId).name}`);
-  assertGameStateInvariants(state);
+  if (player.hand.length <= 7) {
+    beginPreTransmissionPhase(state, actorId);
+  } else {
+    assertGameStateInvariants(state);
+  }
 }
 
 export function startTransmission(
@@ -2055,6 +2091,7 @@ export function startTransmission(
     intendedRecipientId,
     returnedToSender: false,
     interceptorCommitted: false,
+    transferredRecipientCommitted: false,
     receiptCycle: 0,
     receiptStage: "lockOffer",
     lockOfferUsed: false,
@@ -2223,6 +2260,7 @@ export function playLure(
     window.kind !== "intelligence" ||
     transmission.locked ||
     transmission.interceptorCommitted ||
+    transmission.transferredRecipientCommitted ||
     transmission.intendedRecipientId === transmission.senderId
   ) {
     throw new Error("当前接收状态不能使用调虎离山");
@@ -2296,6 +2334,14 @@ function countColor(player: PlayerState, color: "红" | "蓝" | "黑"): number {
     const cardColor = cardById(id).color;
     return cardColor === color || (cardColor === "红蓝" && color !== "黑");
   }).length;
+}
+
+function countTrueIntelligenceOnField(state: GameState): number {
+  return Object.values(state.players).reduce(
+    (total, player) =>
+      total + player.intelligence.filter((id) => cardById(id).color !== "黑").length,
+    0,
+  );
 }
 
 function resolveWinner(player: PlayerState): WinnerState | undefined {
@@ -2429,6 +2475,7 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
     state.auditLog.push(
       `${actorId}接收情报后死亡，阵营公开为${receiver.faction}`,
     );
+    if (finishFactionEliminationVictory(state, false)) return;
   } else {
     state.auditLog.push(`${actorId}接收情报`);
   }
@@ -2531,6 +2578,9 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
   if (transmission.interceptorCommitted) {
     throw new Error("截获者必须接收情报，不能拒绝");
   }
+  if (transmission.transferredRecipientCommitted) {
+    throw new Error("转移后的接收者必须接收情报，不能拒绝");
+  }
   if (transmission.locked) {
     throw new Error("锁定要求当前接收者接收情报");
   }
@@ -2615,6 +2665,7 @@ function resolveTransfer(state: GameState): void {
   }
   const targetId = pending.targetId;
   beginNormalReceiptCycle(state, targetId, false);
+  transmission.transferredRecipientCommitted = true;
   state.auditLog.push(`转移结算，当前接收者：${targetId}`);
   assertGameStateInvariants(state);
 }
@@ -2628,7 +2679,6 @@ export function passReaction(state: GameState, actorId: PlayerId): void {
   if (!state.players[actorId]?.alive) throw new Error("死亡玩家不能响应");
 
   window.nextResponderIndex += 1;
-  state.auditLog.push(`${actorId}放弃响应`);
   if (window.nextResponderIndex === window.responderOrder.length) {
     finishPassedReactionWindow(state, window);
   } else {
@@ -2645,11 +2695,9 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
       pending.stage = "selection";
       state.reactionWindow = undefined;
       state.secretOrderStack = [];
-      state.auditLog.push(
-        pending.sourceCardId && pending.countered
-          ? "秘密下达被识破，颜色限制取消"
-          : "秘密下达窗口结束",
-      );
+      if (pending.sourceCardId && pending.countered) {
+        state.auditLog.push("秘密下达被识破，颜色限制取消");
+      }
       assertGameStateInvariants(state);
     } else if (window.kind === "function") {
       finishActiveFunctionAction(state);
@@ -2954,6 +3002,7 @@ export function playIntercept(
   transmission.intendedRecipientId = actorId;
   transmission.returnedToSender = false;
   transmission.interceptorCommitted = true;
+  transmission.transferredRecipientCommitted = false;
   transmission.receiptStage = "reactions";
   transmission.locked = false;
   openIntelligenceReactionWindow(state, actorId);
@@ -3229,7 +3278,7 @@ export function projectGameForPlayer(
     transmission.senderId === viewerId;
   const canAccept = Boolean(transmission);
   const mustDiscardForHandLimit =
-    state.phase === "initialized" &&
+    state.phase === "discardingForTransmission" &&
     state.activePlayerId === viewerId &&
     viewer.hand.length > 7;
   const isLockOfferForViewer =
@@ -3341,7 +3390,8 @@ export function projectGameForPlayer(
     viewerId !== transmission.intendedRecipientId &&
     transmission.intendedRecipientId !== transmission.senderId &&
     !transmission.locked &&
-    !transmission.interceptorCommitted
+    !transmission.interceptorCommitted &&
+    !transmission.transferredRecipientCommitted
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "调虎离山")
           .map((cardId) => ({ type: "PLAY_LURE" as const, cardId }))
@@ -3357,8 +3407,9 @@ export function projectGameForPlayer(
           .filter((cardId) => cardById(cardId).name === "破译")
           .map((cardId) => ({ type: "PLAY_DECRYPT" as const, cardId }))
       : [];
-  const interceptedRecipientMustAccept =
-    transmission?.interceptorCommitted === true;
+  const recipientMustAccept =
+    transmission?.interceptorCommitted === true ||
+    transmission?.transferredRecipientCommitted === true;
   const topInteraction =
     state.reactionWindow?.kind === "burn"
       ? state.burnContexts.at(-1)?.frames.at(-1)
@@ -3432,7 +3483,7 @@ export function projectGameForPlayer(
       const name = cardById(cardId).name;
       if (name === "增援") {
         activeFunctionActions.push({ type: "PLAY_REINFORCEMENT", cardId });
-      } else if (name === "机密文件") {
+      } else if (name === "机密文件" && countTrueIntelligenceOnField(state) >= 4) {
         activeFunctionActions.push({ type: "PLAY_CONFIDENTIAL_FILE", cardId });
       } else if (name === "公开文本" || name === "危险情报") {
         for (const targetId of state.seatOrder) {
@@ -3494,6 +3545,7 @@ export function projectGameForPlayer(
           direction: transmission.direction,
           intendedRecipientId: transmission.intendedRecipientId,
           returnedToSender: transmission.returnedToSender,
+          transferredRecipientCommitted: transmission.transferredRecipientCommitted,
           receiptStage: transmission.receiptStage,
           locked: transmission.locked,
           faceUp: transmission.faceUp,
@@ -3621,7 +3673,7 @@ export function projectGameForPlayer(
         ? [
             ...(canAccept ? [{ type: "ACCEPT_INTELLIGENCE" } as const] : []),
             ...(!isReturnedForViewer &&
-            !interceptedRecipientMustAccept &&
+            !recipientMustAccept &&
             !transmission.locked
               ? [{ type: "DECLINE_INTELLIGENCE" as const }]
               : []),

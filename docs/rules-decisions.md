@@ -208,6 +208,7 @@ Decision:
 - 截获 has priority over 锁定.
 - A successful 截获 removes any 锁定 attached to the previous intended recipient.
 - Do not offer the final interceptor an accept/decline decision, a new 锁定 opportunity, or a 破译 opportunity.
+- 掉包 remains legal after 截获; the replacement intelligence inherits the interceptor's mandatory-acceptance commitment.
 - After all reactions finish, the final successful interceptor accepts the pending intelligence automatically.
 - The active player cannot play 截获 during their own turn.
 - This includes intercepting their own intelligence back after another player intercepts it.
@@ -274,9 +275,9 @@ Confirmed:
 - Only when their own transmitted intelligence returns to them during their turn.
 - This applies to returned 直达, 文本, and 密电.
 - Choose another intended recipient.
-- This does not cause immediate acceptance.
-- Normal response timing resumes.
-- After 转移 and its reactions resolve, the final transferred target begins a normal receipt cycle: the sender receives the sender-first 锁定 opportunity, then the unlocked target may use 破译 before accepting or declining.
+- This does not cause immediate acceptance; normal response timing resumes.
+- After 转移 and its reactions resolve, the final transferred target is committed to acceptance. The sender receives the sender-first 锁定 opportunity, and the unlocked target may still use 破译 before the mandatory acceptance.
+- 调虎离山 cannot force the committed transferred target to refuse.
 - 截获 remains legal.
 
 ---
@@ -362,11 +363,11 @@ The new target cannot be the original target.
 
 **Status:** CONFIRMED
 
-- Allows inspection of a 密电 or 直达 intelligence before deciding whether to accept or decline.
-- The recipient selected by a resolved 转移 may use 破译 because 转移 creates a normal accept/decline receipt cycle.
+- Allows inspection of a 密电 or 直达 intelligence before its receipt decision resolves.
+- The recipient selected by a resolved 转移 may use 破译 before their mandatory acceptance.
 - Only the current intended recipient may use it.
 - Reveal the inspected intelligence privately only to that recipient.
-- It may be used only when the recipient still has a legal accept/decline decision.
+- It may be used only while the recipient still has a legal receipt decision or a pending mandatory acceptance after 转移.
 - It cannot be used after a successful 锁定 because acceptance is mandatory.
 - It cannot be used by a successful interceptor because 截获 commits that player to acceptance.
 
@@ -683,7 +684,8 @@ Recommended:
 - If the active sender dies, abort their turn. Any currently transmitted intelligence is discarded face up; clear unresolved turn interactions and advance clockwise to the next living player. This rule takes precedence when the sender is also the intended recipient.
 - If an ordinary intended recipient dies, treat that receipt as a decline and continue using the transmission's normal fixed route. If that recipient was locked or committed by 截获, discard the pending intelligence face up and end the sender's turn instead.
 - If a participant required for an unresolved function-card choice or 秘密下达 resolution dies, cancel that unresolved effect. Every already-played card remains spent in its existing discard/removal zone.
-- If exactly one player remains alive after the death, the game ends immediately: 军情 or 潜伏 wins for their faction, while a surviving 特工 wins as that individual agent.
+- After any death, if every surviving player belongs to 军情 or every survivor belongs to 潜伏, that faction wins immediately.
+- 特工 remain individual opponents: multiple surviving 特工 must continue playing. A 特工 wins by elimination only when they are the sole surviving player.
 - A dead disconnected player no longer pauses the game. Play resumes when no living player remains disconnected.
 - After the game starts, host death or disconnection vacates host authority and transfers it to the next connected living player clockwise from that host's seat.
 - Once a successor has received host authority, a previous host's reconnection neither displaces that successor nor automatically restores the previous claim.
@@ -728,7 +730,6 @@ The following files are authoritative:
 src/game/cards.ts
 src/game/cards.test.ts
 docs/rules-decisions.md
-docs/fengsheng_mvp_handoff.md
 ```
 
 Confirmed totals:

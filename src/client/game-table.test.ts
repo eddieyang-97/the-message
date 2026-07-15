@@ -8,6 +8,7 @@ import {
   cardVariantText,
   factionBackgroundClass,
   formatAuditEntries,
+  mergeAuditLogs,
   promptTitle,
   seatOrderAnchoredAtPlayer,
 } from "./GameTable";
@@ -121,9 +122,30 @@ describe("transmission prompt", () => {
 });
 
 describe("public audit log", () => {
+  it("places lobby history before gameplay history without duplicating shared entries", () => {
+    expect(mergeAuditLogs(
+      [
+        "游戏初始化完成：2名玩家",
+        "乙开始以文本传递情报，当前接收者：甲",
+      ],
+      [
+        "甲 创建了房间",
+        "乙 加入了房间",
+        "房间以当前座位开始游戏",
+        "游戏初始化完成：2名玩家",
+      ],
+    )).toEqual([
+      "甲 创建了房间",
+      "乙 加入了房间",
+      "房间以当前座位开始游戏",
+      "游戏初始化完成：2名玩家",
+      "乙开始以文本传递情报，当前接收者：甲",
+    ]);
+  });
+
   it("shows display names instead of internal IDs and keeps chronological order", () => {
     const entries = [
-      "0147dd0b放弃响应",
+      "0147dd0b开始传递情报",
       "0147dd0b完成与6740294b的公开文本交换",
     ];
 
@@ -131,7 +153,7 @@ describe("public audit log", () => {
       "0147dd0b": "小甲",
       "6740294b": "小乙",
     })).toEqual([
-      "【小甲】放弃响应",
+      "【小甲】开始传递情报",
       "【小甲】完成与【小乙】的公开文本交换",
     ]);
   });

@@ -230,6 +230,7 @@ describe("秘密下达", () => {
     playSecretOrder(state, "乙", orderId, word);
     passAll(state);
     expect(state.hiddenSecretOrders).toContain(orderId);
+    expect(state.auditLog.some((entry) => entry.includes("窗口结束"))).toBe(false);
     expect(() => startTransmission(state, "甲", nonmatching)).toThrow("必须传递符合秘密下达颜色");
     const matchingCard: PhysicalCard = PHYSICAL_DECK.find((candidate) => candidate.id === matching)!;
     startTransmission(state, "甲", matching, {

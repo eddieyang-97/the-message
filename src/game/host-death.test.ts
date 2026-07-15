@@ -58,6 +58,56 @@ function passAll(state: GameState): void {
 }
 
 describe("房主判定断线玩家死亡", () => {
+  it("最后一个敌对阵营玩家死亡时由仍有多名存活者的阵营获胜", () => {
+    const state = game(400);
+    const survivingFaction = "军情";
+    const survivors = seats.filter(
+      (id) => state.players[id].faction === survivingFaction,
+    );
+    const finalOpponent = seats.find(
+      (id) => state.players[id].faction !== survivingFaction,
+    );
+    if (survivors.length < 2 || !finalOpponent) throw new Error("测试阵营分配无效");
+    state.activePlayerId = survivors[0];
+    for (const id of seats) {
+      if (!survivors.includes(id) && id !== finalOpponent) {
+        state.players[id].alive = false;
+        state.players[id].factionRevealed = true;
+      }
+    }
+
+    resolveHostImposedDeath(state, finalOpponent);
+
+    expect(state.winner).toEqual({ kind: "faction", faction: survivingFaction });
+    expect(state.phase).toBe("gameOver");
+  });
+
+  it("只剩多名特工时继续游戏，直到只剩一名特工", () => {
+    const state = initializeGame(["甲", "乙", "丙", "丁", "戊", "己"], 4001);
+    const agents = state.seatOrder.filter(
+      (id) => state.players[id].faction === "特工",
+    );
+    const finalNonAgent = state.seatOrder.find(
+      (id) => state.players[id].faction !== "特工",
+    );
+    if (agents.length !== 2 || !finalNonAgent) throw new Error("测试阵营分配无效");
+    state.activePlayerId = agents[0];
+    for (const id of state.seatOrder) {
+      if (!agents.includes(id) && id !== finalNonAgent) {
+        state.players[id].alive = false;
+        state.players[id].factionRevealed = true;
+      }
+    }
+
+    resolveHostImposedDeath(state, finalNonAgent);
+
+    expect(state.winner).toBeUndefined();
+    expect(state.phase).toBe("initialized");
+    resolveHostImposedDeath(state, agents[1]);
+    expect(state.winner).toEqual({ kind: "agent", playerId: agents[0] });
+    expect(state.phase).toBe("gameOver");
+  });
+
   it("立即公开阵营，并把当前响应者当作放弃后从优先级移除", () => {
     const state = game(401);
     const reinforcement = findCard((card) => card.name === "增援");

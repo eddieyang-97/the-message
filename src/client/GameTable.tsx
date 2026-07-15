@@ -235,20 +235,22 @@ export function promptTitle(projection: PlayerProjection): string {
   return projection.activePlayerId === projection.own.id ? "你的行动阶段" : "请选择操作";
 }
 
-function mergeAuditLogs(
+export function mergeAuditLogs(
   gameEntries: readonly string[],
   roomEntries: readonly string[],
 ): string[] {
-  const merged = [...gameEntries];
+  // TODO: Give room and game events one server-assigned sequence so post-start
+  // disconnect/reconnect entries can be interleaved exactly with game actions.
+  const merged = [...roomEntries];
   const gameCounts = new Map<string, number>();
   const roomCounts = new Map<string, number>();
-  for (const entry of gameEntries) {
-    gameCounts.set(entry, (gameCounts.get(entry) ?? 0) + 1);
-  }
   for (const entry of roomEntries) {
-    const occurrence = (roomCounts.get(entry) ?? 0) + 1;
-    roomCounts.set(entry, occurrence);
-    if (occurrence > (gameCounts.get(entry) ?? 0)) merged.push(entry);
+    roomCounts.set(entry, (roomCounts.get(entry) ?? 0) + 1);
+  }
+  for (const entry of gameEntries) {
+    const occurrence = (gameCounts.get(entry) ?? 0) + 1;
+    gameCounts.set(entry, occurrence);
+    if (occurrence > (roomCounts.get(entry) ?? 0)) merged.push(entry);
   }
   return merged;
 }

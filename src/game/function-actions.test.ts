@@ -233,6 +233,21 @@ describe("已实现的行动阶段功能牌", () => {
     expect(state.players["甲"].hand).toHaveLength(before - 1 + 2);
   });
 
+  it("场上不足4张真情报时机密文件不可使用且不生成合法行动", () => {
+    const state = game(211);
+    const confidential = cardId("机密文件");
+    putInHand(state, "甲", confidential);
+
+    expect(projectGameForPlayer(state, "甲").legalActions).not.toContainEqual({
+      type: "PLAY_CONFIDENTIAL_FILE",
+      cardId: confidential,
+    });
+    expect(() => playConfidentialFile(state, "甲", confidential)).toThrow(
+      "场上至少需要4张真情报才能使用机密文件",
+    );
+    expect(state.players["甲"].hand).toContain(confidential);
+  });
+
   it("公开文本只从目标收到该牌前的随机池中取得一张牌", () => {
     const state = game(22);
     const publicText = cardId("公开文本");
