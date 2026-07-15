@@ -140,9 +140,7 @@ describe("规则相关结构约束", () => {
   });
 
   it("逐牌记录七张不可烧毁牌，不依赖运行时牌族推断", () => {
-    expect(
-      PHYSICAL_DECK.filter((card) => card.unburnable).map((card) => card.id),
-    ).toEqual([
+    const confirmedIds = [
       "p2-06",
       "p3-01",
       "p3-05",
@@ -150,10 +148,24 @@ describe("规则相关结构约束", () => {
       "p4-15",
       "p5-13",
       "p6-05",
-    ]);
+    ] as const;
+    const markedCards = PHYSICAL_DECK.filter((card) => card.unburnable);
+
+    expect(markedCards.map((card) => card.id)).toEqual(confirmedIds);
     expect(PHYSICAL_DECK.every((card) => typeof card.unburnable === "boolean")).toBe(
       true,
     );
+    expect(markedCards.every((card) =>
+      card.name === "危险情报" ||
+      (card.name === "掉包" && card.color === "黑") ||
+      (card.name === "锁定" && card.color === "黑" && card.transmission === "直达")
+    )).toBe(true);
+    const physicallyMarkedCards = PHYSICAL_DECK.filter((card) =>
+      card.name === "危险情报" ||
+      (card.name === "掉包" && card.color === "黑") ||
+      (card.name === "锁定" && card.color === "黑" && card.transmission === "直达")
+    );
+    expect(physicallyMarkedCards.map((card) => card.id)).toEqual(confirmedIds);
   });
 
   it("抽弃型试探中三个阵营各有一张带圈和一张不带圈", () => {

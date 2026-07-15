@@ -114,6 +114,15 @@ export function factionBackgroundClass(faction: Faction): string {
   return "game-shell--faction-agent";
 }
 
+export function seatOrderAnchoredAtPlayer(
+  seatOrder: readonly string[],
+  playerId: string,
+): string[] {
+  const anchorIndex = seatOrder.indexOf(playerId);
+  if (anchorIndex < 0) throw new Error("当前玩家不在座位顺序中");
+  return [...seatOrder.slice(anchorIndex), ...seatOrder.slice(0, anchorIndex)];
+}
+
 export function cardVariantText(card: PhysicalCard): string | undefined {
   const variant = card.variant;
   if (!variant) return undefined;
@@ -308,6 +317,10 @@ export function GameTable({
     mergeAuditLogs(projection.auditLog, roomAuditLog),
     playerDisplayNames,
   );
+  const displaySeatOrder = useMemo(
+    () => seatOrderAnchoredAtPlayer(projection.seatOrder, projection.own.id),
+    [projection.own.id, projection.seatOrder],
+  );
   const autoPassAction = automaticPassCommand(actions);
   const autoPassPrompt = reactionTimer?.promptId ?? (
     projection.reactionWindow
@@ -402,7 +415,7 @@ export function GameTable({
       <section className="game-layout">
         <div className="table-area">
           <div className="player-ring">
-            {projection.seatOrder.map((id, index) => {
+            {displaySeatOrder.map((id, index) => {
               const player = projection.players.find((candidate) => candidate.id === id)!;
               const isOwn = id === projection.own.id;
               const isTarget = targetIds.has(id);
@@ -410,7 +423,7 @@ export function GameTable({
                 <article
                   className={`table-player${isOwn ? " table-player--own" : ""}${player.alive ? "" : " table-player--dead"}${projection.activePlayerId === id ? " table-player--active" : ""}`}
                   key={id}
-                  style={{ "--player-index": index, "--player-count": projection.seatOrder.length } as React.CSSProperties}
+                  style={{ "--player-index": index, "--player-count": displaySeatOrder.length } as React.CSSProperties}
                 >
                   <button disabled={!isTarget || busy} onClick={() => chooseTarget(id)} type="button">
                   <strong>{playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}</strong>

@@ -9,6 +9,7 @@ import {
   factionBackgroundClass,
   formatAuditEntries,
   promptTitle,
+  seatOrderAnchoredAtPlayer,
 } from "./GameTable";
 
 const identityProbe = {
@@ -133,5 +134,13 @@ describe("public audit log", () => {
       "【小甲】放弃响应",
       "【小甲】完成与【小乙】的公开文本交换",
     ]);
+  });
+});
+
+describe("viewer-relative seat layout", () => {
+  it("anchors the current player first while preserving clockwise order", () => {
+    expect(seatOrderAnchoredAtPlayer(["甲", "乙", "丙", "丁", "戊"], "丙"))
+      .toEqual(["丙", "丁", "戊", "甲", "乙"]);
+    expect(seatOrderAnchoredAtPlayer(["甲", "乙"], "乙")).toEqual(["乙", "甲"]);
   });
 });

@@ -125,6 +125,44 @@ describe("烧毁", () => {
     },
   );
 
+  it("合法行动只生成存活玩家面前可烧毁的已接收黑色情报", () => {
+    const state = game(712);
+    const burn = findCard((card) => card.name === "烧毁");
+    const burnable = ordinaryBlack([burn]);
+    const deadOwnerBurnable = ordinaryBlack([burn, burnable]);
+    const unburnable = unburnableIds[0];
+    const nonBlack = findCard(
+      (card) => card.color !== "黑" && ![burn, burnable, deadOwnerBurnable].includes(card.id),
+    );
+    inHand(state, "甲", burn);
+    acceptedBy(state, "乙", burnable);
+    acceptedBy(state, "丙", unburnable);
+    acceptedBy(state, "丁", nonBlack);
+    acceptedBy(state, "戊", deadOwnerBurnable);
+    state.players["戊"].alive = false;
+    state.players["戊"].factionRevealed = true;
+
+    const burnActions = projectGameForPlayer(state, "甲").legalActions.filter(
+      (action) => action.type === "PLAY_BURN",
+    );
+
+    expect(burnActions).toEqual([{
+      type: "PLAY_BURN",
+      cardId: burn,
+      targetPlayerId: "乙",
+      targetIntelligenceCardId: burnable,
+    }]);
+    expect(() => playBurn(state, "甲", burn, "丙", unburnable)).toThrow(
+      "不可烧毁",
+    );
+    expect(() => playBurn(state, "甲", burn, "丁", nonBlack)).toThrow(
+      "只能以黑色情报为目标",
+    );
+    expect(() => playBurn(state, "甲", burn, "戊", deadOwnerBurnable)).toThrow(
+      "只能以存活玩家的情报为目标",
+    );
+  });
+
   it("识破恢复烧毁前状态，反识破则重新使烧毁生效", () => {
     const state = game();
     const burn = findCard((card) => card.name === "烧毁");
