@@ -166,6 +166,53 @@ describe("game server sessions", () => {
     ).toMatchObject({ ok: false, error: { code: "PLAYER_ALREADY_DEAD" } });
   });
 
+  it("transfers in-game host authority and does not restore it on reconnect", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 11 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const host = connect(port);
+    const guest = connect(port);
+    sockets.push(host, guest);
+    await Promise.all([connected(host), connected(guest)]);
+    const created = await emitAck<SafeRoomEntryResult>(host, "room:create", {
+      capacity: 2,
+      displayName: "房主",
+    });
+    const joined = await emitAck<SafeRoomEntryResult>(guest, "room:join", {
+      roomCode: created.room.code,
+      displayName: "继任者",
+    });
+    await emitAck<SafeStartRoomResult>(host, "room:start", { seatMode: "as-is" });
+
+    host.disconnect();
+    await eventually(
+      () => server!.roomService.getRoom(created.room.code).hostPlayerId === joined.playerId,
+    );
+    const transferred = server.roomService.getRoom(created.room.code);
+    expect(transferred.gamePausedForDisconnect).toBe(true);
+    expect(transferred.publicAuditLog).toContain("继任者 成为房主");
+
+    await emitAck(guest, "room:mark-dead", { targetPlayerId: created.playerId });
+    expect(server.roomService.getRoom(created.room.code)).toMatchObject({
+      hostPlayerId: joined.playerId,
+      gamePausedForDisconnect: false,
+    });
+
+    const formerHost = connect(port);
+    sockets.push(formerHost);
+    await connected(formerHost);
+    const reconnected = await emitAck<SafeRoomEntryResult>(
+      formerHost,
+      "room:reconnect",
+      {
+        roomCode: created.room.code,
+        reconnectToken: created.reconnectToken,
+      },
+    );
+    expect(reconnected.room.hostPlayerId).toBe(joined.playerId);
+    expect(reconnected.room.viewerIsHost).toBe(false);
+  });
+
   it("mirrors an ordinary engine death into the room before later disconnects", async () => {
     server = createGameServer({ gameSeedGenerator: () => 19 });
     await server.listen(0, "127.0.0.1");

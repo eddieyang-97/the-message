@@ -31,7 +31,7 @@ interface RoomRecord {
   code: string;
   capacity: RoomCapacity;
   phase: "lobby" | "started";
-  hostPlayerId: string;
+  hostPlayerId: string | null;
   players: Map<string, RoomPlayer>;
   pendingSeatSwaps: Map<string, SeatSwapRequest>;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
@@ -145,6 +145,15 @@ export class RoomService {
 
     player.connected = true;
     room.publicAuditLog.push(`${player.displayName} 已重新连接`);
+    if (
+      room.phase === "started" &&
+      room.hostPlayerId === null &&
+      player.alive
+    ) {
+      // Room mutations are serialized; the first eligible reconnect processed
+      // after succession became pending deterministically becomes host.
+      transferInGameHost(room, player);
+    }
     return {
       playerId: player.id,
       reconnectToken: player.reconnectToken,
@@ -157,6 +166,7 @@ export class RoomService {
     const player = requirePlayer(room, playerId);
     player.connected = false;
     room.publicAuditLog.push(`${player.displayName} 已断开连接`);
+    ensureInGameHost(room);
     return this.snapshot(room);
   }
 
@@ -375,6 +385,7 @@ export class RoomService {
     resolveNormalDeath(target.id);
     target.alive = false;
     room.publicAuditLog.push(`${target.displayName} 被房主判定死亡`);
+    ensureInGameHost(room);
     return this.snapshot(room);
   }
 
@@ -389,6 +400,7 @@ export class RoomService {
     }
     const deadPlayers = deadPlayerIds.map((playerId) => requirePlayer(room, playerId));
     for (const player of deadPlayers) player.alive = false;
+    ensureInGameHost(room);
     return this.snapshot(room);
   }
 
@@ -420,7 +432,7 @@ export class RoomService {
   }
 
   private requireHost(room: RoomRecord, playerId: string): void {
-    if (room.hostPlayerId !== playerId) {
+    if (room.hostPlayerId === null || room.hostPlayerId !== playerId) {
       throw new RoomError("NOT_HOST", "只有房主可以执行此操作");
     }
   }
@@ -536,6 +548,41 @@ function transferHostToLongestPresent(room: RoomRecord): void {
     (left, right) => left.joinedSequence - right.joinedSequence,
   )[0];
   if (!successor) return;
+  for (const player of room.players.values()) player.isHost = false;
+  successor.isHost = true;
+  room.hostPlayerId = successor.id;
+  room.publicAuditLog.push(`${successor.displayName} 成为房主`);
+}
+
+function ensureInGameHost(room: RoomRecord): void {
+  if (room.phase !== "started" || room.hostPlayerId === null) return;
+  const current = requirePlayer(room, room.hostPlayerId);
+  if (current.alive && current.connected) return;
+
+  current.isHost = false;
+  const successor = nextConnectedLivingHostCandidate(room, current.seatIndex);
+  if (successor) {
+    transferInGameHost(room, successor);
+  } else {
+    room.hostPlayerId = null;
+  }
+}
+
+function nextConnectedLivingHostCandidate(
+  room: RoomRecord,
+  fromSeatIndex: number,
+): RoomPlayer | undefined {
+  for (let offset = 1; offset <= room.capacity; offset += 1) {
+    const seatIndex = (fromSeatIndex + offset) % room.capacity;
+    const player = playerAtSeat(room, seatIndex);
+    if (player?.alive && player.connected) {
+      return player;
+    }
+  }
+  return undefined;
+}
+
+function transferInGameHost(room: RoomRecord, successor: RoomPlayer): void {
   for (const player of room.players.values()) player.isHost = false;
   successor.isHost = true;
   room.hostPlayerId = successor.id;

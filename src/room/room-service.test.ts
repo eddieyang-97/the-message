@@ -391,7 +391,7 @@ describe("断线暂停和房主判死", () => {
     expect(service.getRoom(room.code).gamePausedForDisconnect).toBe(false);
   });
 
-  it("死亡房主不能使用对局管理操作", () => {
+  it("死亡的原房主不能使用对局管理操作", () => {
     const service = createService();
     const room = fillDuel(service);
     service.startRoom(room.code, room.hostId, "as-is");
@@ -400,11 +400,54 @@ describe("断线暂停和房主判死", () => {
 
     expectRoomError(
       () => service.setReactionTimeout(room.code, room.hostId, 30),
-      "DEAD_PLAYER_CANNOT_ACT",
+      "NOT_HOST",
     );
     expectRoomError(
       () => service.markDisconnectedPlayerDead(room.code, room.hostId, room.guestId, () => {}),
-      "DEAD_PLAYER_CANNOT_ACT",
+      "NOT_HOST",
     );
+  });
+
+  it("游戏中房主离线或死亡后按顺时针永久移交", () => {
+    const service = createService();
+    const host = service.createRoom(5, "甲");
+    const second = service.joinRoom(host.room.code, "乙");
+    const third = service.joinRoom(host.room.code, "丙");
+    const fourth = service.joinRoom(host.room.code, "丁");
+    service.joinRoom(host.room.code, "戊");
+    service.startRoom(host.room.code, host.playerId, "as-is");
+
+    service.disconnect(host.room.code, second.playerId);
+    const transferred = service.disconnect(host.room.code, host.playerId);
+    expect(transferred.hostPlayerId).toBe(third.playerId);
+    expect(transferred.players.find((player) => player.id === third.playerId)?.isHost)
+      .toBe(true);
+    expect(transferred.publicAuditLog.at(-1)).toBe("丙 成为房主");
+
+    service.reconnect(host.room.code, host.reconnectToken);
+    expect(service.getRoom(host.room.code).hostPlayerId).toBe(third.playerId);
+    const afterDeath = service.synchronizePlayerDeaths(host.room.code, [third.playerId]);
+    expect(afterDeath.hostPlayerId).toBe(fourth.playerId);
+    expect(afterDeath.publicAuditLog.at(-1)).toBe("丁 成为房主");
+  });
+
+  it("双人连续断线时等待下一名存活玩家重连继任", () => {
+    const service = createService();
+    const host = service.createRoom(2, "甲");
+    const guest = service.joinRoom(host.room.code, "乙");
+    service.startRoom(host.room.code, host.playerId, "as-is");
+
+    expect(service.disconnect(host.room.code, host.playerId).hostPlayerId).toBe(
+      guest.playerId,
+    );
+    const pending = service.disconnect(host.room.code, guest.playerId);
+    expect(pending.hostPlayerId).toBeNull();
+    expect(pending.players.every((player) => !player.isHost)).toBe(true);
+
+    const resolved = service.reconnect(host.room.code, host.reconnectToken);
+    expect(resolved.room.hostPlayerId).toBe(host.playerId);
+    expect(resolved.room.publicAuditLog.at(-1)).toBe("甲 成为房主");
+    service.reconnect(host.room.code, guest.reconnectToken);
+    expect(service.getRoom(host.room.code).hostPlayerId).toBe(host.playerId);
   });
 });

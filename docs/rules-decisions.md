@@ -684,6 +684,9 @@ Recommended:
 - If a participant required for an unresolved function-card choice or 秘密下达 resolution dies, cancel that unresolved effect. Every already-played card remains spent in its existing discard/removal zone.
 - If exactly one player remains alive after the death, the game ends immediately: 军情 or 潜伏 wins for their faction, while a surviving 特工 wins as that individual agent.
 - A dead disconnected player no longer pauses the game. Play resumes when no living player remains disconnected.
+- After the game starts, host death or disconnection vacates host authority and transfers it to the next connected living player clockwise from that host's seat.
+- Once a successor has received host authority, a previous host's reconnection neither displaces that successor nor automatically restores the previous claim.
+- If no connected living successor is eligible, host succession remains pending with no current host. When an eligible living player reconnects, resolve succession using the same clockwise rule. A reconnecting player may receive host authority even if they held it earlier; prior host status is not a permanent disqualification.
 - The host cannot replace a player or transfer their seat after the game starts.
 - AI control for disconnected players is deferred until after MVP.
 

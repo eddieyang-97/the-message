@@ -29,7 +29,7 @@ export interface RoomSnapshot {
   capacity: RoomCapacity;
   mode: "duel" | "standard";
   phase: RoomPhase;
-  hostPlayerId: string;
+  hostPlayerId: string | null;
   players: RoomPlayerSnapshot[];
   pendingSeatSwaps: SeatSwapRequestSnapshot[];
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
