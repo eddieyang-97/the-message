@@ -291,6 +291,16 @@ Use explicit server state for the current intelligence, intended recipient, fixe
 
 ## 8. Timing and card rules
 
+### Provisional general reaction order
+
+- Offer reaction priority to one living player at a time, beginning with the player affected by the pending interaction and then proceeding clockwise.
+- A player may perform a legal reaction or pass.
+- Playing a reaction opens a fresh clockwise window beginning with the player affected by that new interaction.
+- Resolve the pending interaction after every living player passes consecutively.
+- Skip dead players, but do not skip living players based on their hidden hand contents; doing so would leak information through prompt timing.
+- Treat this policy as provisional until playtesting confirms it.
+- Do not put wall-clock timing inside the deterministic rules engine. A future host-configurable room timeout may submit an ordinary pass command through the server layer.
+
 ### 截获
 
 - Played before intelligence is accepted.

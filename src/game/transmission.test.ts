@@ -7,9 +7,10 @@ import {
   discardForHandLimit,
   declineIntelligence,
   initializeGame,
+  passReaction,
+  playSeparationOnTransfer,
   playTransfer,
   projectGameForPlayer,
-  resolveTransfer,
   startTransmission,
   type GameState,
 } from "./engine";
@@ -24,6 +25,17 @@ function initializedWithActive(
   const state = initializeGame(playerIds, seed);
   state.activePlayerId = activePlayerId;
   return state;
+}
+
+function passAllReactions(state: GameState): void {
+  while (state.reactionWindow) {
+    passReaction(
+      state,
+      state.reactionWindow.responderOrder[
+        state.reactionWindow.nextResponderIndex
+      ],
+    );
+  }
 }
 
 function cardIdWhere(
@@ -359,9 +371,20 @@ describe("转移", () => {
 
     expect(state.transmission?.pendingTransfer?.targetId).toBe("丁");
     expect(state.publicDiscard).toContain(transferCard);
-    expect(projectGameForPlayer(state, "丁").legalActions).toEqual([]);
+    expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
+      type: "PASS_REACTION",
+    });
+    expect(projectGameForPlayer(state, "戊").legalActions).toEqual([]);
+    expect(() => passReaction(state, "戊")).toThrow("尚未轮到该玩家响应");
 
-    resolveTransfer(state);
+    expect(state.reactionWindow?.responderOrder).toEqual([
+      "丁",
+      "戊",
+      "甲",
+      "乙",
+      "丙",
+    ]);
+    passAllReactions(state);
 
     expect(state.transmission?.intendedRecipientId).toBe("丁");
     expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
@@ -406,7 +429,7 @@ describe("转移", () => {
     startTransmission(state, "甲", secretCard);
     declineIntelligence(state, "乙");
     playTransfer(state, "甲", transferCard, "乙");
-    resolveTransfer(state);
+    passAllReactions(state);
 
     expect(state.transmission).toMatchObject({
       method: "密电",
@@ -414,6 +437,60 @@ describe("转移", () => {
       intendedRecipientId: "乙",
       returnedToSender: false,
     });
+  });
+
+  it("离间可改换待结算转移的目标并从新目标重开顺时针窗口", () => {
+    const state = initializedWithActive(players, 65);
+    const directCard = cardIdWhere((card) => card.transmission === "直达");
+    const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
+    const separationCard = cardIdWhere((card) => card.name === "离间", [
+      directCard,
+      transferCard,
+    ]);
+    putCardInHand(state, "甲", directCard, 0);
+    putCardInHand(state, "甲", transferCard, 1);
+    putCardInHand(state, "丁", separationCard, 0);
+    startTransmission(state, "甲", directCard, { targetId: "乙" });
+    declineIntelligence(state, "乙");
+    playTransfer(state, "甲", transferCard, "丁");
+
+    expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
+      type: "PLAY_SEPARATION",
+      cardId: separationCard,
+      targetId: "乙",
+    });
+    playSeparationOnTransfer(state, "丁", separationCard, "乙");
+
+    expect(state.transmission?.pendingTransfer?.targetId).toBe("乙");
+    expect(state.reactionWindow).toMatchObject({
+      affectedPlayerId: "乙",
+      responderOrder: ["乙", "丙", "丁", "戊", "甲"],
+      nextResponderIndex: 0,
+    });
+    expect(state.publicDiscard).toContain(separationCard);
+    passAllReactions(state);
+    expect(state.transmission?.intendedRecipientId).toBe("乙");
+  });
+
+  it("拒绝损坏的响应位置和转移目标关联", () => {
+    const state = initializedWithActive(players, 66);
+    const directCard = cardIdWhere((card) => card.transmission === "直达");
+    const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
+    putCardInHand(state, "甲", directCard, 0);
+    putCardInHand(state, "甲", transferCard, 1);
+    startTransmission(state, "甲", directCard, { targetId: "乙" });
+    declineIntelligence(state, "乙");
+    playTransfer(state, "甲", transferCard, "丁");
+
+    state.reactionWindow!.nextResponderIndex = 0.5;
+    expect(() => assertGameStateInvariants(state)).toThrow(
+      "响应窗口的当前响应位置无效",
+    );
+    state.reactionWindow!.nextResponderIndex = 0;
+    state.reactionWindow!.affectedPlayerId = "乙";
+    expect(() => assertGameStateInvariants(state)).toThrow(
+      "响应顺序必须从受影响玩家开始按顺时针包含所有存活玩家",
+    );
   });
 
   it("传递发送者必须始终是当前行动玩家", () => {

@@ -188,20 +188,19 @@ Confirmed:
 
 ### General reaction order
 
-**Status:** UNRESOLVED
+**Status:** PROVISIONAL
 
-Questions:
-
-- When several players can respond, what determines response priority?
-- Clockwise from the active player?
-- Clockwise from the current intended recipient?
-- Simultaneous server prompt with first valid response winning?
-- Is there a pass system?
-- Once all players pass, does the window close permanently?
+- Reaction opportunities are offered to one living player at a time.
+- A new reaction window starts with the player affected by the pending interaction, then proceeds clockwise.
+- Each player may perform a legal reaction or pass.
+- After a reaction is played, open a fresh window starting from the player affected by that new interaction.
+- When every living eligible-by-seat player passes consecutively, close the window and resolve the pending interaction.
+- Dead players are skipped.
+- Prompt all living players in sequence even when the server knows they hold no applicable reaction card, so timing and prompt order do not leak hidden hand information.
 
 Decision:
 
-> Pending confirmation.
+> Use provisionally and revisit if playtesting reveals priority or pacing problems.
 
 ---
 
@@ -711,8 +710,16 @@ Unresolved:
 
 - How long a disconnected player may remain absent
 - Whether the host may replace or remove them
-- Whether turns have timers
 - Whether a game pauses automatically
+
+### Reaction timeout
+
+**Status:** CONFIRMED
+
+- Reaction ordering in the rules engine does not depend on wall-clock time.
+- A room host may configure a reaction timeout later at the server/room layer.
+- When a configured timeout expires, the server submits the same deterministic pass command the player could submit manually.
+- The exact available timeout values, default setting, and disconnected-player behavior remain product decisions.
 
 ---
 

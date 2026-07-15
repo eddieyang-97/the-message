@@ -29,6 +29,13 @@ export type WinnerState =
   | { kind: "faction"; faction: "军情" | "潜伏" }
   | { kind: "agent"; playerId: PlayerId };
 
+export interface ReactionWindow {
+  kind: "transfer";
+  affectedPlayerId: PlayerId;
+  responderOrder: PlayerId[];
+  nextResponderIndex: number;
+}
+
 export interface PlayerState {
   id: PlayerId;
   faction: Faction;
@@ -53,6 +60,7 @@ export interface GameState {
   hiddenSecretOrders: PhysicalCardId[];
   removedProbes: PhysicalCardId[];
   transmission?: TransmissionState;
+  reactionWindow?: ReactionWindow;
   winner?: WinnerState;
   auditLog: string[];
 }
@@ -91,12 +99,22 @@ export interface PlayerProjection {
     };
   };
   winner?: WinnerState;
+  reactionWindow?: {
+    kind: ReactionWindow["kind"];
+    currentResponderId: PlayerId;
+  };
   legalActions: Array<
     | { type: "ACCEPT_INTELLIGENCE" }
     | { type: "DECLINE_INTELLIGENCE" }
     | { type: "DISCARD_FOR_HAND_LIMIT"; cardId: PhysicalCardId }
     | {
         type: "PLAY_TRANSFER";
+        cardId: PhysicalCardId;
+        targetId: PlayerId;
+      }
+    | { type: "PASS_REACTION" }
+    | {
+        type: "PLAY_SEPARATION";
         cardId: PhysicalCardId;
         targetId: PlayerId;
       }
@@ -298,6 +316,47 @@ export function assertGameStateInvariants(state: GameState): void {
   if ((state.phase === "transmitting") !== Boolean(state.transmission)) {
     throw new Error("传递阶段与待处理情报状态不一致");
   }
+  if (Boolean(state.transmission?.pendingTransfer) !== Boolean(state.reactionWindow)) {
+    throw new Error("待处理互动与响应窗口状态不一致");
+  }
+  if (state.reactionWindow) {
+    if (state.phase !== "transmitting") throw new Error("响应窗口只能存在于传递阶段");
+    const responders = state.reactionWindow.responderOrder;
+    if (responders.length === 0) throw new Error("响应窗口必须包含当前响应者");
+    if (new Set(responders).size !== responders.length) {
+      throw new Error("响应窗口不能重复包含玩家");
+    }
+    if (responders.some((id) => !state.players[id]?.alive)) {
+      throw new Error("响应窗口只能包含存活玩家");
+    }
+    const expectedOrder = livingPlayersClockwiseFrom(
+      state,
+      state.reactionWindow.affectedPlayerId,
+    );
+    if (
+      responders.length !== expectedOrder.length ||
+      responders.some((id, index) => id !== expectedOrder[index])
+    ) {
+      throw new Error("响应顺序必须从受影响玩家开始按顺时针包含所有存活玩家");
+    }
+    if (
+      !Number.isInteger(state.reactionWindow.nextResponderIndex) ||
+      state.reactionWindow.nextResponderIndex < 0 ||
+      state.reactionWindow.nextResponderIndex >= responders.length
+    ) {
+      throw new Error("响应窗口的当前响应位置无效");
+    }
+    const pendingTransfer = state.transmission?.pendingTransfer;
+    if (
+      !pendingTransfer ||
+      state.reactionWindow.kind !== "transfer" ||
+      state.reactionWindow.affectedPlayerId !== pendingTransfer.targetId ||
+      !state.transmission?.returnedToSender ||
+      state.transmission.intendedRecipientId !== state.transmission.senderId
+    ) {
+      throw new Error("转移互动与响应窗口关联不一致");
+    }
+  }
   if ((state.phase === "victoryPending") !== Boolean(state.winner)) {
     throw new Error("待确认胜利阶段与胜者状态不一致");
   }
@@ -385,6 +444,20 @@ function tryNextLivingPlayer(
     }
     throw error;
   }
+}
+
+function livingPlayersClockwiseFrom(
+  state: GameState,
+  startId: PlayerId,
+): PlayerId[] {
+  const startIndex = state.seatOrder.indexOf(startId);
+  if (startIndex < 0) throw new Error("响应起始玩家不在座位列表中");
+  const ordered: PlayerId[] = [];
+  for (let distance = 0; distance < state.seatOrder.length; distance += 1) {
+    const id = state.seatOrder[(startIndex + distance) % state.seatOrder.length];
+    if (state.players[id].alive) ordered.push(id);
+  }
+  return ordered;
 }
 
 function advanceToNextTurn(state: GameState): void {
@@ -636,11 +709,17 @@ export function playTransfer(
   actor.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
   transmission.pendingTransfer = { sourceCardId: cardId, targetId };
+  state.reactionWindow = {
+    kind: "transfer",
+    affectedPlayerId: targetId,
+    responderOrder: livingPlayersClockwiseFrom(state, targetId),
+    nextResponderIndex: 0,
+  };
   state.auditLog.push(`${actorId}使用转移，声明新的接收者：${targetId}`);
   assertGameStateInvariants(state);
 }
 
-export function resolveTransfer(state: GameState): void {
+function resolveTransfer(state: GameState): void {
   const transmission = state.transmission;
   const pending = transmission?.pendingTransfer;
   if (state.phase !== "transmitting" || !transmission || !pending) {
@@ -649,7 +728,67 @@ export function resolveTransfer(state: GameState): void {
   transmission.intendedRecipientId = pending.targetId;
   transmission.returnedToSender = false;
   transmission.pendingTransfer = undefined;
+  state.reactionWindow = undefined;
   state.auditLog.push(`转移结算，当前接收者：${transmission.intendedRecipientId}`);
+  assertGameStateInvariants(state);
+}
+
+export function passReaction(state: GameState, actorId: PlayerId): void {
+  const window = state.reactionWindow;
+  if (!window) throw new Error("当前没有响应窗口");
+  if (window.responderOrder[window.nextResponderIndex] !== actorId) {
+    throw new Error("尚未轮到该玩家响应");
+  }
+  if (!state.players[actorId]?.alive) throw new Error("死亡玩家不能响应");
+
+  window.nextResponderIndex += 1;
+  state.auditLog.push(`${actorId}放弃响应`);
+  if (window.nextResponderIndex === window.responderOrder.length) {
+    resolveTransfer(state);
+  } else {
+    assertGameStateInvariants(state);
+  }
+}
+
+export function playSeparationOnTransfer(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  targetId: PlayerId,
+): void {
+  const window = state.reactionWindow;
+  const transmission = state.transmission;
+  const pending = transmission?.pendingTransfer;
+  if (!window || !transmission || !pending || window.kind !== "transfer") {
+    throw new Error("当前没有可被离间改换目标的转移");
+  }
+  if (window.responderOrder[window.nextResponderIndex] !== actorId) {
+    throw new Error("尚未轮到该玩家响应");
+  }
+  const actor = state.players[actorId];
+  if (!actor?.alive) throw new Error("死亡玩家不能使用离间");
+  const cardIndex = actor.hand.indexOf(cardId);
+  if (cardIndex < 0 || cardById(cardId).name !== "离间") {
+    throw new Error("必须使用自己手中的离间牌");
+  }
+  if (
+    targetId === pending.targetId ||
+    targetId === transmission.senderId ||
+    !state.players[targetId]?.alive
+  ) {
+    throw new Error("离间必须为转移选择另一个合法存活目标");
+  }
+
+  actor.hand.splice(cardIndex, 1);
+  state.publicDiscard.push(cardId);
+  pending.targetId = targetId;
+  state.reactionWindow = {
+    kind: "transfer",
+    affectedPlayerId: targetId,
+    responderOrder: livingPlayersClockwiseFrom(state, targetId),
+    nextResponderIndex: 0,
+  };
+  state.auditLog.push(`${actorId}使用离间，将转移目标改为：${targetId}`);
   assertGameStateInvariants(state);
 }
 
@@ -689,6 +828,29 @@ export function projectGameForPlayer(
               .filter((targetId) => targetId !== viewerId && state.players[targetId].alive)
               .map((targetId) => ({
                 type: "PLAY_TRANSFER" as const,
+                cardId,
+                targetId,
+              })),
+          )
+      : [];
+  const currentReactionResponderId =
+    state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex];
+  const separationActions =
+    currentReactionResponderId === viewerId &&
+    state.reactionWindow?.kind === "transfer" &&
+    transmission?.pendingTransfer
+      ? viewer.hand
+          .filter((cardId) => cardById(cardId).name === "离间")
+          .flatMap((cardId) =>
+            state.seatOrder
+              .filter(
+                (targetId) =>
+                  state.players[targetId].alive &&
+                  targetId !== transmission.senderId &&
+                  targetId !== transmission.pendingTransfer?.targetId,
+              )
+              .map((targetId) => ({
+                type: "PLAY_SEPARATION" as const,
                 cardId,
                 targetId,
               })),
@@ -738,11 +900,22 @@ export function projectGameForPlayer(
         }
       : undefined,
     winner: state.winner ? { ...state.winner } : undefined,
+    reactionWindow: state.reactionWindow
+      ? {
+          kind: state.reactionWindow.kind,
+          currentResponderId:
+            state.reactionWindow.responderOrder[
+              state.reactionWindow.nextResponderIndex
+            ],
+        }
+      : undefined,
     legalActions: mustDiscardForHandLimit
       ? viewer.hand.map((cardId) => ({
           type: "DISCARD_FOR_HAND_LIMIT" as const,
           cardId,
         }))
+      : currentReactionResponderId === viewerId
+        ? [{ type: "PASS_REACTION" }, ...separationActions]
       : isCurrentRecipient && !transmission?.pendingTransfer
         ? [
             ...(canAccept ? [{ type: "ACCEPT_INTELLIGENCE" } as const] : []),
