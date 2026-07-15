@@ -18,6 +18,11 @@ export interface TransmissionState {
   method: FixedTransmissionMethod;
   direction?: Direction;
   intendedRecipientId: PlayerId;
+  returnedToSender: boolean;
+  pendingTransfer?: {
+    sourceCardId: PhysicalCardId;
+    targetId: PlayerId;
+  };
 }
 
 export type WinnerState =
@@ -79,12 +84,22 @@ export interface PlayerProjection {
     direction?: Direction;
     intendedRecipientId: PlayerId;
     card?: PhysicalCard;
+    returnedToSender: boolean;
+    pendingTransfer?: {
+      sourceCard: PhysicalCard;
+      targetId: PlayerId;
+    };
   };
   winner?: WinnerState;
   legalActions: Array<
     | { type: "ACCEPT_INTELLIGENCE" }
     | { type: "DECLINE_INTELLIGENCE" }
     | { type: "DISCARD_FOR_HAND_LIMIT"; cardId: PhysicalCardId }
+    | {
+        type: "PLAY_TRANSFER";
+        cardId: PhysicalCardId;
+        targetId: PlayerId;
+      }
   >;
 }
 
@@ -227,6 +242,12 @@ export function assertGameStateInvariants(state: GameState): void {
   ) {
     throw new Error("死亡玩家不能成为当前行动玩家");
   }
+  if (
+    state.phase === "initialized" &&
+    state.players[state.activePlayerId].hand.length === 0
+  ) {
+    throw new Error("当前玩家在传递前必须至少保留一张手牌");
+  }
   if (new Set(state.seatOrder).size !== state.seatOrder.length) {
     throw new Error("座位列表包含重复玩家");
   }
@@ -287,6 +308,26 @@ export function assertGameStateInvariants(state: GameState): void {
       !state.players[transmission.intendedRecipientId]?.alive
     ) {
       throw new Error("传递中的发送者和接收者必须存活且存在");
+    }
+    if (transmission.senderId !== state.activePlayerId) {
+      throw new Error("传递发送者必须是当前行动玩家");
+    }
+    if (
+      transmission.returnedToSender &&
+      transmission.intendedRecipientId !== transmission.senderId
+    ) {
+      throw new Error("已返回发送者的情报必须以发送者为当前接收者");
+    }
+    if (transmission.pendingTransfer) {
+      const pending = transmission.pendingTransfer;
+      if (
+        pending.targetId === transmission.senderId ||
+        !state.players[pending.targetId]?.alive ||
+        cardById(pending.sourceCardId).name !== "转移" ||
+        !state.publicDiscard.includes(pending.sourceCardId)
+      ) {
+        throw new Error("待响应的转移状态无效");
+      }
     }
     const card = cardById(transmission.cardId);
     if (card.transmission !== "任意" && card.transmission !== transmission.method) {
@@ -461,6 +502,7 @@ export function startTransmission(
     method,
     direction,
     intendedRecipientId,
+    returnedToSender: false,
   };
   state.phase = "transmitting";
   state.auditLog.push(
@@ -505,6 +547,7 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
   if (state.phase !== "transmitting" || !transmission) {
     throw new Error("当前没有待接收的情报");
   }
+  if (transmission.pendingTransfer) throw new Error("转移响应窗口尚未结束");
   if (transmission.intendedRecipientId !== actorId) {
     throw new Error("只有当前接收者可以接收情报");
   }
@@ -540,24 +583,73 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
   if (state.phase !== "transmitting" || !transmission) {
     throw new Error("当前没有待回应的情报");
   }
+  if (transmission.pendingTransfer) throw new Error("转移响应窗口尚未结束");
   if (transmission.intendedRecipientId !== actorId) {
     throw new Error("只有当前接收者可以拒绝情报");
   }
   if (!state.players[actorId]?.alive) throw new Error("死亡玩家不能回应情报");
-  if (
-    actorId === transmission.senderId &&
-    transmission.method === "直达"
-  ) {
-    throw new Error("情报返回发送者后的处理规则尚未确认");
+  if (actorId === transmission.senderId && transmission.returnedToSender) {
+    throw new Error("返回发送者的情报必须接收或转移，不能再次拒绝");
   }
 
   transmission.intendedRecipientId =
     transmission.method === "直达"
       ? transmission.senderId
       : nextLivingPlayer(state, actorId, transmission.direction ?? "clockwise");
+  transmission.returnedToSender =
+    transmission.intendedRecipientId === transmission.senderId;
   state.auditLog.push(
     `${actorId}拒绝情报，当前接收者：${transmission.intendedRecipientId}`,
   );
+  assertGameStateInvariants(state);
+}
+
+export function playTransfer(
+  state: GameState,
+  actorId: PlayerId,
+  cardId: PhysicalCardId,
+  targetId: PlayerId,
+): void {
+  const transmission = state.transmission;
+  if (state.phase !== "transmitting" || !transmission) {
+    throw new Error("当前没有可转移的情报");
+  }
+  if (
+    actorId !== state.activePlayerId ||
+    actorId !== transmission.senderId ||
+    actorId !== transmission.intendedRecipientId ||
+    !transmission.returnedToSender
+  ) {
+    throw new Error("只有情报返回时的当前发送者可以使用转移");
+  }
+  if (transmission.pendingTransfer) throw new Error("已有转移正在等待响应");
+  const actor = state.players[actorId];
+  if (!actor?.alive) throw new Error("死亡玩家不能使用转移");
+  const cardIndex = actor.hand.indexOf(cardId);
+  if (cardIndex < 0 || cardById(cardId).name !== "转移") {
+    throw new Error("必须使用自己手中的转移牌");
+  }
+  if (targetId === actorId || !state.players[targetId]?.alive) {
+    throw new Error("转移必须选择另一名存活玩家");
+  }
+
+  actor.hand.splice(cardIndex, 1);
+  state.publicDiscard.push(cardId);
+  transmission.pendingTransfer = { sourceCardId: cardId, targetId };
+  state.auditLog.push(`${actorId}使用转移，声明新的接收者：${targetId}`);
+  assertGameStateInvariants(state);
+}
+
+export function resolveTransfer(state: GameState): void {
+  const transmission = state.transmission;
+  const pending = transmission?.pendingTransfer;
+  if (state.phase !== "transmitting" || !transmission || !pending) {
+    throw new Error("当前没有待结算的转移");
+  }
+  transmission.intendedRecipientId = pending.targetId;
+  transmission.returnedToSender = false;
+  transmission.pendingTransfer = undefined;
+  state.auditLog.push(`转移结算，当前接收者：${transmission.intendedRecipientId}`);
   assertGameStateInvariants(state);
 }
 
@@ -574,14 +666,34 @@ export function projectGameForPlayer(
     transmission &&
     (transmission.method === "文本" || transmission.senderId === viewerId);
   const isCurrentRecipient = transmission?.intendedRecipientId === viewerId;
-  const awaitsUnresolvedDirectReturn =
-    transmission?.method === "直达" && transmission.senderId === viewerId;
+  const isReturnedForViewer =
+    transmission?.returnedToSender === true &&
+    transmission.senderId === viewerId;
   const canAccept =
     transmission && !acceptanceRequiresUnimplementedEffect(state, transmission);
   const mustDiscardForHandLimit =
     state.phase === "initialized" &&
     state.activePlayerId === viewerId &&
     viewer.hand.length > 7;
+  const transferActions =
+    transmission &&
+    !transmission.pendingTransfer &&
+    transmission.returnedToSender &&
+    transmission.senderId === viewerId &&
+    transmission.intendedRecipientId === viewerId &&
+    state.activePlayerId === viewerId
+      ? viewer.hand
+          .filter((cardId) => cardById(cardId).name === "转移")
+          .flatMap((cardId) =>
+            state.seatOrder
+              .filter((targetId) => targetId !== viewerId && state.players[targetId].alive)
+              .map((targetId) => ({
+                type: "PLAY_TRANSFER" as const,
+                cardId,
+                targetId,
+              })),
+          )
+      : [];
 
   return {
     mode: state.mode,
@@ -611,8 +723,17 @@ export function projectGameForPlayer(
           method: transmission.method,
           direction: transmission.direction,
           intendedRecipientId: transmission.intendedRecipientId,
+          returnedToSender: transmission.returnedToSender,
           card: canSeePendingCard
             ? projectedCardById(transmission.cardId)
+            : undefined,
+          pendingTransfer: transmission.pendingTransfer
+            ? {
+                sourceCard: projectedCardById(
+                  transmission.pendingTransfer.sourceCardId,
+                ),
+                targetId: transmission.pendingTransfer.targetId,
+              }
             : undefined,
         }
       : undefined,
@@ -622,10 +743,13 @@ export function projectGameForPlayer(
           type: "DISCARD_FOR_HAND_LIMIT" as const,
           cardId,
         }))
-      : isCurrentRecipient && !awaitsUnresolvedDirectReturn
+      : isCurrentRecipient && !transmission?.pendingTransfer
         ? [
             ...(canAccept ? [{ type: "ACCEPT_INTELLIGENCE" } as const] : []),
-            { type: "DECLINE_INTELLIGENCE" as const },
+            ...transferActions,
+            ...(!isReturnedForViewer
+              ? [{ type: "DECLINE_INTELLIGENCE" as const }]
+              : []),
           ]
         : [],
   };

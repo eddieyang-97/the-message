@@ -7,7 +7,9 @@ import {
   discardForHandLimit,
   declineIntelligence,
   initializeGame,
+  playTransfer,
   projectGameForPlayer,
+  resolveTransfer,
   startTransmission,
   type GameState,
 } from "./engine";
@@ -35,22 +37,27 @@ function cardIdWhere(
   return card.id;
 }
 
-function putCardInHand(state: GameState, playerId: string, cardId: PhysicalCardId): void {
+function putCardInHand(
+  state: GameState,
+  playerId: string,
+  cardId: PhysicalCardId,
+  handIndex = 0,
+): void {
   const currentOwner = Object.values(state.players).find((player) =>
     player.hand.includes(cardId),
   );
   if (currentOwner) {
     const target = state.players[playerId];
-    const replacement = target.hand[0];
-    target.hand[0] = cardId;
+    const replacement = target.hand[handIndex];
+    target.hand[handIndex] = cardId;
     currentOwner.hand[currentOwner.hand.indexOf(cardId)] = replacement;
     return;
   }
 
   const drawIndex = state.drawPile.indexOf(cardId);
   if (drawIndex < 0) throw new Error("测试牌不在可交换区域");
-  const replacement = state.players[playerId].hand[0];
-  state.players[playerId].hand[0] = cardId;
+  const replacement = state.players[playerId].hand[handIndex];
+  state.players[playerId].hand[handIndex] = cardId;
   state.drawPile[drawIndex] = replacement;
 }
 
@@ -148,12 +155,17 @@ describe("开始传递", () => {
 
     expect(state.transmission?.intendedRecipientId).toBe("甲");
     expect(() => declineIntelligence(state, "甲")).toThrow(
-      "情报返回发送者后的处理规则尚未确认",
+      "返回发送者的情报必须接收或转移，不能再次拒绝",
     );
-    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([]);
+    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
+    ]);
+    acceptIntelligence(state, "甲");
+    expect(state.players["甲"].intelligence).toContain(cardId);
+    expect(state.activePlayerId).toBe("乙");
   });
 
-  it("密电绕回发送者后仍可沿固定路线继续", () => {
+  it("密电绕回发送者后也必须接收或转移", () => {
     const state = initializedWithActive(["甲", "乙"], 31);
     const cardId = cardIdWhere(
       (card) =>
@@ -166,8 +178,13 @@ describe("开始传递", () => {
     startTransmission(state, "甲", cardId);
     declineIntelligence(state, "乙");
     expect(state.transmission?.intendedRecipientId).toBe("甲");
-    declineIntelligence(state, "甲");
-    expect(state.transmission?.intendedRecipientId).toBe("乙");
+    expect(state.transmission?.returnedToSender).toBe(true);
+    expect(() => declineIntelligence(state, "甲")).toThrow(
+      "返回发送者的情报必须接收或转移，不能再次拒绝",
+    );
+    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+      type: "ACCEPT_INTELLIGENCE",
+    });
   });
 
   it("任意传递牌要求发送者选择实际方式", () => {
@@ -315,6 +332,100 @@ describe("接收、死亡与胜利", () => {
     expect(state.winner).toEqual({ kind: "faction", faction: "军情" });
     expect(state.phase).toBe("victoryPending");
     expect(state.auditLog).toContain("甲的回合结束");
+  });
+});
+
+describe("转移", () => {
+  it("直达返回发送者后可弃置转移并选择新的存活接收者", () => {
+    const state = initializedWithActive(players, 61);
+    const directCard = cardIdWhere((card) => card.transmission === "直达");
+    const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
+    putCardInHand(state, "甲", directCard, 0);
+    putCardInHand(state, "甲", transferCard, 1);
+
+    startTransmission(state, "甲", directCard, { targetId: "乙" });
+    declineIntelligence(state, "乙");
+
+    const actions = projectGameForPlayer(state, "甲").legalActions;
+    expect(actions).toContainEqual({ type: "ACCEPT_INTELLIGENCE" });
+    expect(actions).toContainEqual({
+      type: "PLAY_TRANSFER",
+      cardId: transferCard,
+      targetId: "丁",
+    });
+    expect(actions).not.toContainEqual({ type: "DECLINE_INTELLIGENCE" });
+
+    playTransfer(state, "甲", transferCard, "丁");
+
+    expect(state.transmission?.pendingTransfer?.targetId).toBe("丁");
+    expect(state.publicDiscard).toContain(transferCard);
+    expect(projectGameForPlayer(state, "丁").legalActions).toEqual([]);
+
+    resolveTransfer(state);
+
+    expect(state.transmission?.intendedRecipientId).toBe("丁");
+    expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
+      { type: "DECLINE_INTELLIGENCE" },
+    ]);
+    declineIntelligence(state, "丁");
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "甲",
+      returnedToSender: true,
+    });
+    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+      type: "ACCEPT_INTELLIGENCE",
+    });
+  });
+
+  it("直达尚未返回时不能使用转移", () => {
+    const state = initializedWithActive(players, 62);
+    const directCard = cardIdWhere((card) => card.transmission === "直达");
+    const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
+    putCardInHand(state, "甲", directCard, 0);
+    putCardInHand(state, "甲", transferCard, 1);
+    startTransmission(state, "甲", directCard, { targetId: "乙" });
+
+    expect(() => playTransfer(state, "甲", transferCard, "丁")).toThrow(
+      "只有情报返回时的当前发送者可以使用转移",
+    );
+  });
+
+  it("返回发送者的密电也可以使用转移", () => {
+    const state = initializedWithActive(["甲", "乙"], 63);
+    const secretCard = cardIdWhere(
+      (card) =>
+        card.transmission === "密电" &&
+        !card.circle &&
+        card.name !== "截获",
+    );
+    const transferCard = cardIdWhere((card) => card.name === "转移", [secretCard]);
+    putCardInHand(state, "甲", secretCard, 0);
+    putCardInHand(state, "甲", transferCard, 1);
+
+    startTransmission(state, "甲", secretCard);
+    declineIntelligence(state, "乙");
+    playTransfer(state, "甲", transferCard, "乙");
+    resolveTransfer(state);
+
+    expect(state.transmission).toMatchObject({
+      method: "密电",
+      direction: "clockwise",
+      intendedRecipientId: "乙",
+      returnedToSender: false,
+    });
+  });
+
+  it("传递发送者必须始终是当前行动玩家", () => {
+    const state = initializedWithActive(players, 64);
+    const directCard = cardIdWhere((card) => card.transmission === "直达");
+    putCardInHand(state, "甲", directCard);
+    startTransmission(state, "甲", directCard, { targetId: "乙" });
+
+    state.activePlayerId = "丙";
+    expect(() => assertGameStateInvariants(state)).toThrow(
+      "传递发送者必须是当前行动玩家",
+    );
   });
 });
 

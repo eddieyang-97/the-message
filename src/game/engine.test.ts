@@ -70,6 +70,17 @@ describe("游戏初始化", () => {
     const players = Array.from({ length: count }, (_, index) => `${index}`);
     expect(() => initializeGame(players, 1)).toThrow("仅支持2人决斗或5至8人标准游戏");
   });
+
+  it("拒绝当前玩家在传递前没有手牌的状态", () => {
+    const state = initializeGame(["甲", "乙", "丙", "丁", "戊"], 88);
+    const active = state.players[state.activePlayerId];
+    state.drawPile.push(...active.hand);
+    active.hand = [];
+
+    expect(() => assertGameStateInvariants(state)).toThrow(
+      "当前玩家在传递前必须至少保留一张手牌",
+    );
+  });
 });
 
 describe("双人决斗牌组", () => {

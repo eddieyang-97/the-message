@@ -107,12 +107,13 @@ Confirmed:
 - A living active player must complete one intelligence transmission during their turn.
 - They cannot voluntarily end their turn without transmitting.
 - Successfully accepted intelligence satisfies the turn's transmission requirement.
+- Before starting transmission, the active player must always have at least one card in hand.
+- A function-card action or other voluntary action is illegal if it would leave the active player with no card to transmit.
 
 Unresolved:
 
 - How many function cards may the active player play per turn?
 - Can the active player play multiple function cards before transmitting?
-- What happens if the active player has no card they can legally transmit?
 
 Decision:
 
@@ -169,26 +170,17 @@ Decision:
 
 ### Transmission returning to sender
 
-**Status:** PARTIALLY CONFIRMED
+**Status:** CONFIRMED
 
 Confirmed:
 
-- A returned 直达 intelligence may create the timing window for 转移.
+- When 直达, 文本, or 密电 returns to its active sender, the sender may use 转移.
 - 转移 chooses a different intended recipient.
 - The new recipient still receives a normal response window.
 - 截获 remains legal.
-
-Unresolved:
-
-- What happens if the sender does not or cannot play 转移?
-- Must the sender accept the returned intelligence?
-- Can the sender decline it again?
-- Does it discard?
-- Can another response card affect it?
-
-Decision:
-
-> Pending confirmation.
+- If the sender does not play 转移, they must accept the returned intelligence regardless of transmission method.
+- The sender cannot decline returned 直达, 文本, or 密电 again.
+- Other confirmed legal reaction windows remain available before acceptance.
 
 ---
 
@@ -298,6 +290,7 @@ Decision:
 
 - Only the active sender may use it.
 - Only when their own transmitted intelligence returns to them during their turn.
+- This applies to returned 直达, 文本, and 密电.
 - Choose another intended recipient.
 - This does not cause immediate acceptance.
 - Normal response timing resumes.

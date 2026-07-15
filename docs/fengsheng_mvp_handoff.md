@@ -254,6 +254,7 @@ Intelligence in front of dead players remains on the table.
 - Select the initial active player uniformly at random using server-generated randomness.
 - `seatOrder` records the players in clockwise table order, and normal turns advance clockwise.
 - Every living active player must complete one intelligence transmission and cannot voluntarily end their turn without doing so.
+- Before starting transmission, the active player must retain at least one hand card; voluntary actions that would leave no card to transmit are illegal.
 - Immediately before transmission, the active player must discard chosen cards face up until their hand contains at most 7 cards; transmission cannot start above that limit.
 - The active player's turn ends immediately when their transmitted intelligence is accepted; they cannot play further active-turn function cards afterward.
 - Dead players cannot take turns, act, respond, or receive new intelligence. Advance clockwise to the next living player and skip dead seats.
@@ -282,6 +283,7 @@ If declined:
 
 - 密电 and 文本 continue along their fixed route.
 - 直达 returns to the sender.
+- Once 直达, 文本, or 密电 returns to its active sender, the sender must accept it unless they first play a legal 转移; they cannot decline it again.
 
 Use explicit server state for the current intelligence, intended recipient, fixed route, direction, and response window.
 
@@ -333,6 +335,7 @@ Represent each intercept as a reversible interaction frame rather than mutating 
 
 - Only the active sender may use it.
 - Only when their own transmitted intelligence returns to them during their turn.
+- Applies equally to returned 直达, 文本, and 密电.
 - Choose a different intended recipient.
 - This does not cause immediate acceptance.
 - Normal response timing resumes.
@@ -602,8 +605,6 @@ The remaining work is implementation and a small number of gameplay-policy decis
 
 - draw-pile exhaustion during turn-start or effect draws
 - function-card limits and action timing before transmission
-- behavior when the active player cannot legally transmit
-- returned 直达 behavior when 转移 is not used
 - general reaction priority and passing
 - simultaneous victory and final game-ending policy
 - disconnect timeout and host controls
