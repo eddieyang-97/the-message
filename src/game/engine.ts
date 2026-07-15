@@ -2917,7 +2917,9 @@ function playCounterOnBurn(
     responderOrder: reactionOrderAfterTarget(state, target.sourcePlayerId),
     nextResponderIndex: 0,
   };
-  state.auditLog.push(`${actorId}使用识破反制烧毁行动`);
+  state.auditLog.push(
+    `${actorId}使用识破，反制${target.sourcePlayerId}的${cardById(target.sourceCardId).name}`,
+  );
   assertGameStateInvariants(state);
 }
 
@@ -3131,7 +3133,9 @@ function playCounterOnSecretOrder(
     responderOrder: reactionOrderAfterTarget(state, target.sourcePlayerId),
     nextResponderIndex: 0,
   };
-  state.auditLog.push(`${actorId}使用识破反制秘密下达行动`);
+  state.auditLog.push(
+    `${actorId}使用识破，反制${target.sourcePlayerId}的${cardById(target.sourceCardId).name}`,
+  );
   assertGameStateInvariants(state);
 }
 

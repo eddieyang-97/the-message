@@ -179,6 +179,7 @@ describe("烧毁", () => {
     playCounter(state, "丙", counter1, burnFrame.id);
     const firstCounter = state.burnContexts.at(-1)!.frames.at(-1)!;
     playCounter(state, "乙", counter2, firstCounter.id);
+    expect(state.auditLog.at(-1)).toBe("乙使用识破，反制丙的识破");
     passCurrentWindow(state);
 
     expect(state.players["乙"].intelligence).not.toContain(intelligence);

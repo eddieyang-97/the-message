@@ -196,6 +196,32 @@ describe("破译", () => {
 });
 
 describe("秘密下达", () => {
+  it("识破另一张识破时公开记录准确指向栈顶识破", () => {
+    const state = game(318);
+    const orderId = card((candidate) => candidate.variant?.kind === "secretOrder");
+    const counterOne = card(
+      (candidate) => candidate.name === "识破" && candidate.id !== orderId,
+    );
+    const counterTwo = card(
+      (candidate) =>
+        candidate.name === "识破" &&
+        candidate.id !== orderId &&
+        candidate.id !== counterOne,
+    );
+    putInHand(state, "乙", orderId);
+    putInHand(state, "丙", counterOne);
+    putInHand(state, "丁", counterTwo);
+
+    enterTransmissionPhase(state, "甲");
+    playSecretOrder(state, "乙", orderId, "听风");
+    passReaction(state, "乙");
+    playCounter(state, "丙", counterOne, state.secretOrderStack.at(-1)!.id);
+    passReaction(state, "丙");
+    playCounter(state, "丁", counterTwo, state.secretOrderStack.at(-1)!.id);
+
+    expect(state.auditLog.at(-1)).toBe("丁使用识破，反制丙的识破");
+  });
+
   it("初始询问不包含准备传情报的玩家", () => {
     const state = game(319);
 
