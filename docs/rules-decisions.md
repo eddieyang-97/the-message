@@ -589,9 +589,10 @@ A client must not receive:
 - After any death, if every surviving player belongs to 军情 or every survivor belongs to 潜伏, that faction wins immediately.
 - 特工 remain individual opponents: multiple surviving 特工 must continue playing. A 特工 wins by elimination only when they are the sole surviving player.
 - A dead disconnected player no longer pauses the game. Play resumes when no living player remains disconnected.
-- After the game starts, host death or disconnection vacates host authority and transfers it to the next connected living player clockwise from that host's seat.
+- Host authority is administrative rather than a gameplay action. A host retains host authority after death and may continue using room-management controls, but still has no legal gameplay actions.
+- After the game starts, only host disconnection vacates host authority and transfers it clockwise to the next connected human participant.
 - Once a successor has received host authority, a previous host's reconnection neither displaces that successor nor automatically restores the previous claim.
-- If no connected living successor is eligible, host succession remains pending with no current host. When an eligible living player reconnects, resolve succession using the same clockwise rule. A reconnecting player may receive host authority even if they held it earlier; prior host status is not a permanent disqualification.
+- If no connected human successor is eligible, host succession remains pending with no current host. When an eligible participant reconnects, resolve succession using the same clockwise rule. A reconnecting player may receive host authority even if they held it earlier; prior host status is not a permanent disqualification.
 - The host cannot replace a player or transfer their seat after the game starts.
 - Before the game starts, the host may add AI players to empty seats and remove those AI players.
 - During a game, the host may enable AI control for a disconnected living player. Reconnecting with that player's valid token restores human control automatically.

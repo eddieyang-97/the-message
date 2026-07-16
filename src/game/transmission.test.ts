@@ -307,6 +307,10 @@ describe("接收、死亡与胜利", () => {
     acceptAfterReactions(state, "乙");
 
     expect(state.players["乙"].intelligence).toContain(cardId);
+    const acceptedCard = PHYSICAL_DECK.find((card) => card.id === cardId)!;
+    expect(state.auditLog).toContain(
+      `乙接收情报：「${acceptedCard.name}（${acceptedCard.color} · ${acceptedCard.transmission}）」`,
+    );
     expect(state.transmission).toBeUndefined();
     expect(state.phase).toBe("initialized");
     expect(state.activePlayerId).toBe("乙");
@@ -399,6 +403,10 @@ describe("接收、死亡与胜利", () => {
 
     expect(state.players[receiverId].alive).toBe(false);
     expect(state.players[receiverId].intelligence).toHaveLength(6);
+    const acceptedCard = PHYSICAL_DECK.find((card) => card.id === fatalCard)!;
+    expect(state.auditLog).toContain(
+      `${receiverId}接收情报「${acceptedCard.name}（${acceptedCard.color} · ${acceptedCard.transmission}）」后死亡，阵营公开为特工`,
+    );
     expect(state.winner).toBeUndefined();
   });
 
@@ -848,6 +856,11 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     expect(state.transmission).toBeUndefined();
     expect(state.players["丙"].intelligence).toContain(swap);
     expect(state.publicDiscard).toContain(intelligence);
+    const originalCard = PHYSICAL_DECK.find((card) => card.id === intelligence)!;
+    const replacementCard = PHYSICAL_DECK.find((card) => card.id === swap)!;
+    expect(state.auditLog).toContain(
+      `掉包结算：原情报「${originalCard.name}（${originalCard.color} · ${originalCard.transmission}）」公开弃置；替换牌「${replacementCard.name}（${replacementCard.color} · ${replacementCard.transmission}）」正面朝上`,
+    );
   });
 
   it("掉包结算后仍可再次掉包", () => {

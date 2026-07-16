@@ -133,6 +133,13 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     );
   }
 
+  function synchronizeGameAudit(roomCode: string): void {
+    roomService.synchronizeGameAuditLog(
+      roomCode,
+      gameSessionService.getState(roomCode).auditLog,
+    );
+  }
+
   async function broadcastReactionTimer(
     roomCode: string,
     timer: ReactionTimerSnapshot | null,
@@ -151,6 +158,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     dispatch: (roomCode, actorId, command) => {
       roomService.assertGameplayCanProgress(roomCode);
       gameSessionService.dispatch(roomCode, actorId, command);
+      synchronizeGameAudit(roomCode);
       synchronizeRoomDeaths(roomCode);
     },
     onGameAdvanced: async (roomCode) => {
@@ -170,6 +178,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     dispatch: (roomCode, actorId, command) => {
       roomService.assertGameplayCanProgress(roomCode);
       gameSessionService.dispatch(roomCode, actorId, command);
+      synchronizeGameAudit(roomCode);
       synchronizeRoomDeaths(roomCode);
     },
     onAdvanced: async (roomCode) => {
@@ -516,6 +525,10 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           result.seatOrder,
           gameSeedGenerator(),
         );
+        result.room = roomService.synchronizeGameAuditLog(
+          result.room.code,
+          game.auditLog,
+        );
         await options.hooks?.onRoomStarted?.(result);
         const sockets = await io.in(result.room.code).fetchSockets();
         let requesterResult: SafeStartRoomResult | undefined;
@@ -577,6 +590,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           request.targetPlayerId,
           (playerId) => {
             gameSessionService.resolveHostImposedDeath(identity.roomCode, playerId);
+            synchronizeGameAudit(identity.roomCode);
           },
         );
       });
@@ -597,6 +611,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           identity.playerId,
           request.command,
         );
+        synchronizeGameAudit(identity.roomCode);
         synchronizeRoomDeaths(identity.roomCode);
         acknowledge({ ok: true, data: projection });
         await broadcastRoom(identity.roomCode);

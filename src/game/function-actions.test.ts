@@ -347,6 +347,16 @@ describe("已实现的行动阶段功能牌", () => {
         card: expect.objectContaining({ id: chosen }),
       }),
     );
+    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "dangerousDiscardMade",
+        otherPlayerId: "乙",
+        card: expect.objectContaining({ id: chosen }),
+      }),
+    );
+    expect(projectGameForPlayer(state, "丙").privateNotices).not.toContainEqual(
+      expect.objectContaining({ card: expect.objectContaining({ id: chosen }) }),
+    );
     expect(state.auditLog.at(-1)).toContain(
       PHYSICAL_DECK.find((candidate) => candidate.id === chosen)!.name,
     );
@@ -369,6 +379,13 @@ describe("已实现的行动阶段功能牌", () => {
       expect.objectContaining({
         kind: "dangerousDiscardLost",
         otherPlayerId: "甲",
+        card: expect.objectContaining({ id: onlyCard }),
+      }),
+    );
+    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "dangerousDiscardMade",
+        otherPlayerId: "乙",
         card: expect.objectContaining({ id: onlyCard }),
       }),
     );

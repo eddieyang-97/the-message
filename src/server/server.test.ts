@@ -122,6 +122,14 @@ describe("game server sessions", () => {
     const [hostProjection, guestProjection] = await Promise.all([hostGame, guestGame]);
 
     expect(started.initialActivePlayerId).toBe(hostProjection.activePlayerId);
+    expect(started.room.publicAuditEvents.slice(-5).map((event) => event.source)).toEqual([
+      "room",
+      "game",
+      "game",
+      "game",
+      "game",
+    ]);
+    expect(started.room.publicAuditEvents.at(-1)?.text).toContain("首回合开始时摸2张牌");
     expect(hostProjection.own.id).toBe(created.playerId);
     expect(guestProjection.own.id).toBe(joined.playerId);
     expect(
@@ -133,6 +141,10 @@ describe("game server sessions", () => {
 
     guest.disconnect();
     await eventually(() => server!.roomService.getRoom(created.room.code).gamePausedForDisconnect);
+    expect(server.roomService.getRoom(created.room.code).publicAuditEvents.at(-1)).toMatchObject({
+      source: "room",
+      text: "朋友 已断开连接",
+    });
     const paused = await emitRawAck(host, "game:command", {
       command: { type: "PASS_LOCK" },
     });

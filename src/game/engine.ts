@@ -258,6 +258,7 @@ export interface PrivateCardNotice {
   kind:
     | "publicTextGained"
     | "publicTextLost"
+    | "dangerousDiscardMade"
     | "dangerousDiscardLost"
     | "probePlayed"
     | "secretOrderPlayed"
@@ -1936,13 +1937,18 @@ function finishActiveFunctionAction(state: GameState): void {
       const [discarded] = target.hand.splice(0, 1);
       if (!discarded) throw new Error("危险情报自动弃牌失败");
       state.publicDiscard.push(discarded);
+      state.privateNotices[source.id].push({
+        kind: "dangerousDiscardMade",
+        otherPlayerId: target.id,
+        cardId: discarded,
+      });
       state.privateNotices[target.id].push({
         kind: "dangerousDiscardLost",
         otherPlayerId: source.id,
         cardId: discarded,
       });
       state.auditLog.push(
-        `${source.id}通过危险情报自动弃置${target.id}唯一的手牌：${describeDiscardedCard(discarded)}`,
+        `${source.id}通过危险情报自动弃置${target.id}唯一的手牌：${describeCardBrief(discarded)}`,
       );
     } else {
       action.stage = "awaitingDiscard";
@@ -2059,20 +2065,25 @@ export function chooseDangerousIntelligenceDiscard(
   if (cardIndex < 0) throw new Error("只能选择目标当前手中的牌");
   target.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
+  state.privateNotices[actorId].push({
+    kind: "dangerousDiscardMade",
+    otherPlayerId: target.id,
+    cardId,
+  });
   state.privateNotices[target.id].push({
     kind: "dangerousDiscardLost",
     otherPlayerId: actorId,
     cardId,
   });
   state.auditLog.push(
-    `${actorId}通过危险情报弃置${target.id}的一张牌：${describeDiscardedCard(cardId)}`,
+    `${actorId}通过危险情报弃置${target.id}的一张牌：${describeCardBrief(cardId)}`,
   );
   state.activeFunctionAction = undefined;
   state.activeFunctionStack = [];
   assertGameStateInvariants(state);
 }
 
-function describeDiscardedCard(cardId: PhysicalCardId): string {
+function describeCardBrief(cardId: PhysicalCardId): string {
   const card = cardById(cardId);
   return `「${card.name}（${card.color} · ${card.transmission}）」`;
 }
@@ -2343,7 +2354,9 @@ function resolveSwap(state: GameState): void {
   transmission.faceUp = true;
   state.interactionStack = [];
   beginReceiptReactionStage(state);
-  state.auditLog.push("掉包结算：原情报公开弃置，替换牌正面朝上");
+  state.auditLog.push(
+    `掉包结算：原情报${describeCardBrief(replacedCardId)}公开弃置；替换牌${describeCardBrief(pending.sourceCardId)}正面朝上`,
+  );
   assertGameStateInvariants(state);
 }
 
@@ -2574,11 +2587,11 @@ export function acceptIntelligence(state: GameState, actorId: PlayerId): void {
     receiver.alive = false;
     receiver.factionRevealed = true;
     state.auditLog.push(
-      `${actorId}接收情报后死亡，阵营公开为${receiver.faction}`,
+      `${actorId}接收情报${describeCardBrief(transmission.cardId)}后死亡，阵营公开为${receiver.faction}`,
     );
     if (finishFactionEliminationVictory(state, false)) return;
   } else {
-    state.auditLog.push(`${actorId}接收情报`);
+    state.auditLog.push(`${actorId}接收情报：${describeCardBrief(transmission.cardId)}`);
   }
 
   if (receiver.alive && acceptedCard.name === "公开文本") {

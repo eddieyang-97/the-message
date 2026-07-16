@@ -217,7 +217,7 @@ export function App() {
         })}
         playerDisplayNames={Object.fromEntries(room.players.map((player) => [player.id, player.displayName]))}
         projection={spectatorGame}
-        roomAuditLog={room.publicAuditLog}
+        publicAuditEvents={room.publicAuditEvents}
         spectators={room.spectators}
       />
     );
@@ -236,8 +236,7 @@ export function App() {
             botControlled: player.botControlled,
           }))}
         errorMessage={errorMessage}
-        isHost={room.hostPlayerId === credentials.playerId &&
-          room.players.find((player) => player.id === credentials.playerId)?.alive !== false}
+        isHost={room.hostPlayerId === credentials.playerId}
         onCommand={(command: GameCommand) => void runAction("game-command", async () => {
           const updated = await client.sendGameCommand(command);
           setGame(updated);
@@ -253,7 +252,7 @@ export function App() {
         )}
         reactionTimer={reactionTimer}
         reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
-        roomAuditLog={room.publicAuditLog}
+        publicAuditEvents={room.publicAuditEvents}
         spectators={room.spectators}
         onReactionTimeoutChange={(seconds) => void runAction("timeout", () => client.setReactionTimeout({
           seconds: seconds === 0 ? null : seconds,

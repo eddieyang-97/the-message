@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Faction, PhysicalCard, PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
+import type { PublicAuditEvent } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { REACTION_TIMEOUT_OPTIONS, type ReactionTimeoutSeconds } from "./lobby-types";
@@ -19,7 +20,7 @@ export interface GameTableProps {
   reactionTimer?: ReactionTimerSnapshot | null;
   isHost?: boolean;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
-  roomAuditLog?: readonly string[];
+  publicAuditEvents?: readonly PublicAuditEvent[];
   spectators?: readonly { id: string; displayName: string; connected: boolean }[];
   disconnectedLivingPlayers?: readonly {
     id: string;
@@ -52,8 +53,10 @@ export function automaticPassCommand(
 
 export function automaticPassDelayMs(
   action: Extract<GameCommand, { type: "PASS_REACTION" | "PASS_LOCK" }>,
+  handCount = 0,
 ): number {
-  return action.type === "PASS_REACTION" ? 1_000 : 0;
+  if (action.type === "PASS_LOCK") return 0;
+  return handCount === 0 ? 0 : 1_000;
 }
 
 export function isNearScrollBottom(
@@ -550,22 +553,12 @@ export function promptTitle(projection: PlayerProjection): string {
 
 export function mergeAuditLogs(
   gameEntries: readonly string[],
-  roomEntries: readonly string[],
+  orderedEvents: readonly PublicAuditEvent[] = [],
 ): string[] {
-  // TODO: Give room and game events one server-assigned sequence so post-start
-  // disconnect/reconnect entries can be interleaved exactly with game actions.
-  const merged = [...roomEntries];
-  const gameCounts = new Map<string, number>();
-  const roomCounts = new Map<string, number>();
-  for (const entry of roomEntries) {
-    roomCounts.set(entry, (roomCounts.get(entry) ?? 0) + 1);
-  }
-  for (const entry of gameEntries) {
-    const occurrence = (gameCounts.get(entry) ?? 0) + 1;
-    gameCounts.set(entry, occurrence);
-    if (occurrence > (roomCounts.get(entry) ?? 0)) merged.push(entry);
-  }
-  return merged;
+  if (orderedEvents.length === 0) return [...gameEntries];
+  return [...orderedEvents]
+    .sort((left, right) => left.sequence - right.sequence)
+    .map((event) => event.text);
 }
 
 export function formatAuditEntries(
@@ -590,7 +583,7 @@ export function GameTable({
   reactionTimer,
   isHost = false,
   reactionTimeoutSeconds,
-  roomAuditLog = [],
+  publicAuditEvents = [],
   spectators = [],
   disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
@@ -670,7 +663,7 @@ export function GameTable({
 
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
   const auditEntries = formatAuditEntries(
-    mergeAuditLogs(projection.auditLog, roomAuditLog),
+    mergeAuditLogs(projection.auditLog, publicAuditEvents),
     playerDisplayNames,
   );
 
@@ -710,14 +703,14 @@ export function GameTable({
       return;
     }
     lastAutoPassPrompt.current = autoPassPrompt;
-    const delayMs = automaticPassDelayMs(autoPassAction);
+    const delayMs = automaticPassDelayMs(autoPassAction, projection.own.hand.length);
     if (delayMs === 0) {
       onCommand(autoPassAction);
       return;
     }
     const timeout = window.setTimeout(() => onCommand(autoPassAction), delayMs);
     return () => window.clearTimeout(timeout);
-  }, [autoPassAction, autoPassIgnoreBurn, autoPassNoAction, autoPassPrompt, busy, connected, onCommand]);
+  }, [autoPassAction, autoPassNoAction, autoPassPrompt, busy, connected, onCommand, projection.own.hand.length]);
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
@@ -957,11 +950,13 @@ export function GameTable({
                           ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过公开文本从你手中取得了这张牌：`
                         : notice.kind === "dangerousDiscardLost"
                           ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过危险情报从你手中弃置了这张牌：`
-                          : notice.kind === "probePlayed"
-                            ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的试探详情：`
-                            : notice.kind === "secretOrderPlayed"
-                              ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`
-                              : `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】对你使用的秘密下达详情：`}
+                          : notice.kind === "dangerousDiscardMade"
+                            ? `你通过危险情报从【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】手中弃置了这张牌：`
+                            : notice.kind === "probePlayed"
+                              ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的试探详情：`
+                              : notice.kind === "secretOrderPlayed"
+                                ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`
+                                : `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】对你使用的秘密下达详情：`}
                     </p>
                     <CardView card={notice.card} />
                   </div>

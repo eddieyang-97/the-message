@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { PhysicalCard } from "../game/cards";
 import type { SpectatorProjection } from "../game/engine";
+import type { PublicAuditEvent } from "../room";
 import { formatAuditEntries, mergeAuditLogs } from "./GameTable";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import "./game-table.css";
@@ -10,7 +11,7 @@ export interface SpectatorTableProps {
   projection: SpectatorProjection;
   playerDisplayNames: Readonly<Record<string, string>>;
   spectators: readonly { id: string; displayName: string; connected: boolean }[];
-  roomAuditLog: readonly string[];
+  publicAuditEvents: readonly PublicAuditEvent[];
   connected: boolean;
   onLeave: () => void;
 }
@@ -33,12 +34,12 @@ export function SpectatorTable({
   projection,
   playerDisplayNames,
   spectators,
-  roomAuditLog,
+  publicAuditEvents,
   connected,
   onLeave,
 }: SpectatorTableProps) {
   const auditEntries = formatAuditEntries(
-    mergeAuditLogs(projection.auditLog, roomAuditLog),
+    mergeAuditLogs(projection.auditLog, publicAuditEvents),
     playerDisplayNames,
   );
   const [discardPileOpen, setDiscardPileOpen] = useState(false);

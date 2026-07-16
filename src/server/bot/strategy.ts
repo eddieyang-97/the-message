@@ -11,21 +11,22 @@ export interface BotPolicy {
   readonly beliefModel: "independent" | "exact";
   readonly scoring: "baseline" | "tactical";
   readonly burnBase: number;
-  readonly reactionDiscipline: boolean;
+  /** Strength of the confidence-adjusted cost for spending optional reaction cards. */
+  readonly reactionConservation: number;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
   beliefModel: "independent",
   scoring: "baseline",
   burnBase: 7,
-  reactionDiscipline: false,
+  reactionConservation: 0,
 };
 export const TACTICAL_V2: BotPolicy = {
   id: "tactical-v2",
   beliefModel: "independent",
   scoring: "tactical",
   burnBase: 7,
-  reactionDiscipline: false,
+  reactionConservation: 0,
 };
 export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V2;
 
@@ -323,8 +324,8 @@ export function chooseBotDecision(
       const scored = policy.scoring === "baseline"
         ? scoreBaselineAction(action, projection, beliefs)
         : scoreAction(action, projection, beliefs, policy);
-      return policy.reactionDiscipline
-        ? applyCandidateV5Discipline(action, scored, projection, beliefs)
+      return policy.reactionConservation > 0
+        ? applyReactionConservation(action, scored, projection, beliefs, policy.reactionConservation)
         : scored;
     })
     .filter((candidate) => !excluded.has(JSON.stringify(candidate.command)));
@@ -467,7 +468,7 @@ function scoreAction(
   }
 }
 
-const CANDIDATE_V5_DISCRETIONARY_REACTIONS = new Set<LegalAction["type"]>([
+const DISCRETIONARY_REACTIONS = new Set<LegalAction["type"]>([
   "PLAY_LOCK",
   "PLAY_COUNTER",
   "PLAY_INTERCEPT",
@@ -479,19 +480,20 @@ const CANDIDATE_V5_DISCRETIONARY_REACTIONS = new Set<LegalAction["type"]>([
   "PLAY_LURE",
 ]);
 
-function applyCandidateV5Discipline(
+function applyReactionConservation(
   action: LegalAction,
   scored: BotDecision,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
+  strength: number,
 ): BotDecision {
-  if (!CANDIDATE_V5_DISCRETIONARY_REACTIONS.has(action.type) || Math.abs(scored.score) >= 1_000) {
+  if (!DISCRETIONARY_REACTIONS.has(action.type) || Math.abs(scored.score) >= 1_000) {
     return scored;
   }
   const targetId = reactionDecisionTarget(action, projection);
   const belief = targetId ? beliefs[targetId] : undefined;
   const confidence = belief ? Math.max(...FACTIONS.map((faction) => belief[faction])) : 1 / 3;
-  const conservationCost = 1.5 + (1 - confidence) * 3;
+  const conservationCost = strength * (1 + (1 - confidence) * 2);
   return {
     ...scored,
     score: scored.score - conservationCost,

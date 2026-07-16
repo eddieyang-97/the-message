@@ -11,6 +11,7 @@ import {
   type RoomPlayerSnapshot,
   type RoomRandom,
   type RoomSnapshot,
+  type PublicAuditEvent,
   type RoomSpectatorSnapshot,
   type SeatSwapRequestSnapshot,
   type StartRoomResult,
@@ -42,6 +43,9 @@ interface RoomRecord {
   pendingSeatSwaps: Map<string, SeatSwapRequest>;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   publicAuditLog: string[];
+  publicAuditEvents: PublicAuditEvent[];
+  nextAuditSequence: number;
+  gameAuditCursor: number;
   nextJoinedSequence: number;
 }
 
@@ -52,6 +56,7 @@ export interface RoomServiceOptions {
   swapRequestIdGenerator?: RoomIdGenerator;
   roomCodeGenerator?: RoomIdGenerator;
   botIdGenerator?: RoomIdGenerator;
+  now?: () => number;
 }
 
 /**
@@ -66,6 +71,7 @@ export class RoomService {
   private readonly swapRequestIdGenerator: RoomIdGenerator;
   private readonly roomCodeGenerator: RoomIdGenerator;
   private readonly botIdGenerator: RoomIdGenerator;
+  private readonly now: () => number;
 
   constructor(options: RoomServiceOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -76,6 +82,7 @@ export class RoomService {
     this.roomCodeGenerator =
       options.roomCodeGenerator ?? (() => generateRoomCode(this.random));
     this.botIdGenerator = options.botIdGenerator ?? (() => `bot-${defaultOpaqueId()}`);
+    this.now = options.now ?? Date.now;
   }
 
   createRoom(
@@ -113,9 +120,13 @@ export class RoomService {
       spectators: new Map(),
       pendingSeatSwaps: new Map(),
       reactionTimeoutSeconds: 15,
-      publicAuditLog: [`${creator.displayName} 创建了房间`],
+      publicAuditLog: [],
+      publicAuditEvents: [],
+      nextAuditSequence: 1,
+      gameAuditCursor: 0,
       nextJoinedSequence: 1,
     };
+    appendAudit(room, `${creator.displayName} 创建了房间`, "room", this.now());
     this.rooms.set(code, room);
 
     return { ...credentials, room: this.snapshot(room) };
@@ -147,7 +158,7 @@ export class RoomService {
       joinedSequence: room.nextJoinedSequence++,
     };
     room.players.set(player.id, player);
-    room.publicAuditLog.push(`${player.displayName} 加入了房间`);
+    appendAudit(room, `${player.displayName} 加入了房间`, "room", this.now());
     return { ...credentials, room: this.snapshot(room) };
   }
 
@@ -165,7 +176,7 @@ export class RoomService {
       connected: true,
     };
     room.spectators.set(spectator.id, spectator);
-    room.publicAuditLog.push(`${name} 开始旁观`);
+    appendAudit(room, `${name} 开始旁观`, "room", this.now());
     return { ...credentials, isSpectator: true, room: this.snapshot(room) };
   }
 
@@ -192,11 +203,11 @@ export class RoomService {
     const wasConnected = player.connected;
     player.connected = true;
     player.botControlled = false;
-    if (!wasConnected) room.publicAuditLog.push(`${player.displayName} 已重新连接`);
+    if (!wasConnected) appendAudit(room, `${player.displayName} 已重新连接`, "room", this.now());
     if (
       room.phase === "started" &&
       room.hostPlayerId === null &&
-      player.alive
+      !player.isBot
     ) {
       // Room mutations are serialized; the first eligible reconnect processed
       // after succession became pending deterministically becomes host.
@@ -218,7 +229,7 @@ export class RoomService {
     }
     const player = requirePlayer(room, playerId);
     player.connected = false;
-    room.publicAuditLog.push(`${player.displayName} 已断开连接`);
+    appendAudit(room, `${player.displayName} 已断开连接`, "room", this.now());
     ensureInGameHost(room);
     return this.snapshot(room);
   }
@@ -287,7 +298,7 @@ export class RoomService {
       joinedSequence: room.nextJoinedSequence++,
     };
     room.players.set(bot.id, bot);
-    room.publicAuditLog.push(`${bot.displayName} 加入了房间`);
+    appendAudit(room, `${bot.displayName} 加入了房间`, "room", this.now());
     return this.snapshot(room);
   }
 
@@ -313,7 +324,7 @@ export class RoomService {
         joinedSequence: room.nextJoinedSequence++,
       };
       room.players.set(bot.id, bot);
-      room.publicAuditLog.push(`${bot.displayName} 加入了房间`);
+      appendAudit(room, `${bot.displayName} 加入了房间`, "room", this.now());
     }
     return this.snapshot(room);
   }
@@ -345,10 +356,6 @@ export class RoomService {
       throw new RoomError("ROOM_NOT_STARTED", "游戏尚未开始");
     }
     this.requireHost(room, hostPlayerId);
-    const host = requirePlayer(room, hostPlayerId);
-    if (!host.alive) {
-      throw new RoomError("DEAD_PLAYER_CANNOT_ACT", "死亡房主不能指定 AI 接管");
-    }
     const target = requirePlayer(room, targetPlayerId);
     if (target.isBot) {
       throw new RoomError("PLAYER_NOT_DISCONNECTED", "固定 AI 座位无需接管");
@@ -360,10 +367,12 @@ export class RoomService {
       throw new RoomError("PLAYER_ALREADY_DEAD", "死亡玩家不能由 AI 接管");
     }
     target.botControlled = enabled;
-    room.publicAuditLog.push(
+    appendAudit(room,
       enabled
         ? `房主指定 AI 暂时接管 ${target.displayName}`
         : `房主取消 AI 对 ${target.displayName} 的接管`,
+      "room",
+      this.now(),
     );
     return this.snapshot(room);
   }
@@ -371,7 +380,7 @@ export class RoomService {
   private removePlayerRecord(room: RoomRecord, target: RoomPlayer): void {
     room.players.delete(target.id);
     clearSwapRequestsForPlayer(room, target.id);
-    room.publicAuditLog.push(`${target.displayName} 离开了房间`);
+    appendAudit(room, `${target.displayName} 离开了房间`, "room", this.now());
     if (target.id === room.hostPlayerId) {
       transferHostToLongestPresent(room);
     }
@@ -478,8 +487,11 @@ export class RoomService {
 
     room.phase = "started";
     room.pendingSeatSwaps.clear();
-    room.publicAuditLog.push(
+    room.gameAuditCursor = 0;
+    appendAudit(room,
       seatMode === "random" ? "房间以随机座位开始游戏" : "房间以当前座位开始游戏",
+      "room",
+      this.now(),
     );
     return {
       room: this.snapshot(room),
@@ -497,7 +509,9 @@ export class RoomService {
     room.phase = "lobby";
     room.pendingSeatSwaps.clear();
     for (const player of room.players.values()) player.alive = true;
-    room.publicAuditLog.push("房主发起新游戏，所有玩家返回大厅");
+    room.publicAuditEvents = room.publicAuditEvents.filter((event) => event.source === "room");
+    room.gameAuditCursor = 0;
+    appendAudit(room, "房主发起新游戏，所有玩家返回大厅", "room", this.now());
     return this.snapshot(room);
   }
 
@@ -508,21 +522,31 @@ export class RoomService {
   ): RoomSnapshot {
     const room = this.requireRoom(roomCode);
     this.requireHost(room, hostPlayerId);
-    if (room.phase === "started" && !requirePlayer(room, hostPlayerId).alive) {
-      throw new RoomError("DEAD_PLAYER_CANNOT_ACT", "死亡玩家不能修改反应时限");
-    }
     if (!REACTION_TIMEOUT_OPTIONS.includes(seconds)) {
       throw new RoomError("INVALID_TIMEOUT", "不支持该反应时限");
     }
     room.reactionTimeoutSeconds = seconds;
     const label = seconds === null ? "关闭" : `${seconds} 秒`;
-    room.publicAuditLog.push(`房主将反应时限改为 ${label}`);
+    appendAudit(room, `房主将反应时限改为 ${label}`, "room", this.now());
     return this.snapshot(room);
   }
 
   /** Timer owners should capture this value when opening a new optional prompt. */
   reactionTimeoutForNextPrompt(roomCode: string): ReactionTimeoutSeconds {
     return this.requireRoom(roomCode).reactionTimeoutSeconds;
+  }
+
+  /** Adds newly produced authoritative game entries to the shared public order. */
+  synchronizeGameAuditLog(roomCode: string, gameAuditLog: readonly string[]): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    if (gameAuditLog.length < room.gameAuditCursor) {
+      room.gameAuditCursor = 0;
+    }
+    for (const text of gameAuditLog.slice(room.gameAuditCursor)) {
+      appendAudit(room, text, "game", this.now());
+    }
+    room.gameAuditCursor = gameAuditLog.length;
+    return this.snapshot(room);
   }
 
   /** Call before forwarding any gameplay progression command to the engine. */
@@ -554,9 +578,6 @@ export class RoomService {
       throw new RoomError("ROOM_NOT_STARTED", "游戏尚未开始");
     }
     this.requireHost(room, hostPlayerId);
-    if (!requirePlayer(room, hostPlayerId).alive) {
-      throw new RoomError("DEAD_PLAYER_CANNOT_ACT", "死亡玩家不能判定其他玩家死亡");
-    }
     const target = requirePlayer(room, targetPlayerId);
     if (target.connected) {
       throw new RoomError("PLAYER_STILL_CONNECTED", "只能将断线玩家判定死亡");
@@ -568,7 +589,7 @@ export class RoomService {
     // any other ordinary death consequences before the room clears its pause.
     resolveNormalDeath(target.id);
     target.alive = false;
-    room.publicAuditLog.push(`${target.displayName} 被房主判定死亡`);
+    appendAudit(room, `${target.displayName} 被房主判定死亡`, "room", this.now());
     ensureInGameHost(room);
     return this.snapshot(room);
   }
@@ -678,6 +699,7 @@ export class RoomService {
             !player.connected,
         ),
       publicAuditLog: [...room.publicAuditLog],
+      publicAuditEvents: room.publicAuditEvents.map((event) => ({ ...event })),
     };
   }
 }
@@ -768,16 +790,16 @@ function transferHostToLongestPresent(room: RoomRecord): void {
   for (const player of room.players.values()) player.isHost = false;
   successor.isHost = true;
   room.hostPlayerId = successor.id;
-  room.publicAuditLog.push(`${successor.displayName} 成为房主`);
+  appendAudit(room, `${successor.displayName} 成为房主`, "room", Date.now());
 }
 
 function ensureInGameHost(room: RoomRecord): void {
   if (room.phase !== "started" || room.hostPlayerId === null) return;
   const current = requirePlayer(room, room.hostPlayerId);
-  if (current.alive && current.connected) return;
+  if (current.connected) return;
 
   current.isHost = false;
-  const successor = nextConnectedLivingHostCandidate(room, current.seatIndex);
+  const successor = nextConnectedHostCandidate(room, current.seatIndex);
   if (successor) {
     transferInGameHost(room, successor);
   } else {
@@ -785,14 +807,14 @@ function ensureInGameHost(room: RoomRecord): void {
   }
 }
 
-function nextConnectedLivingHostCandidate(
+function nextConnectedHostCandidate(
   room: RoomRecord,
   fromSeatIndex: number,
 ): RoomPlayer | undefined {
   for (let offset = 1; offset <= room.capacity; offset += 1) {
     const seatIndex = (fromSeatIndex + offset) % room.capacity;
     const player = playerAtSeat(room, seatIndex);
-    if (player?.alive && player.connected && !player.isBot) {
+    if (player?.connected && !player.isBot) {
       return player;
     }
   }
@@ -803,7 +825,22 @@ function transferInGameHost(room: RoomRecord, successor: RoomPlayer): void {
   for (const player of room.players.values()) player.isHost = false;
   successor.isHost = true;
   room.hostPlayerId = successor.id;
-  room.publicAuditLog.push(`${successor.displayName} 成为房主`);
+  appendAudit(room, `${successor.displayName} 成为房主`, "room", Date.now());
+}
+
+function appendAudit(
+  room: RoomRecord,
+  text: string,
+  source: PublicAuditEvent["source"],
+  timestamp: number,
+): void {
+  if (source === "room") room.publicAuditLog.push(text);
+  room.publicAuditEvents.push({
+    sequence: room.nextAuditSequence++,
+    timestamp,
+    text,
+    source,
+  });
 }
 
 function shuffled<T>(values: readonly T[], random: RoomRandom): T[] {

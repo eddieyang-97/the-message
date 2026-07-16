@@ -1,5 +1,5 @@
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V5 } from "./policies";
+import { CANDIDATE_V6 } from "./policies";
 import { TACTICAL_V2 } from "../server/bot/strategy";
 
 const mode = process.argv[2] === "ab"
@@ -13,7 +13,12 @@ const games = parseInteger(process.argv[3 + offset] ?? "100", mode === "ab" ? "p
 const startSeed = parseInteger(process.argv[4 + offset] ?? "1", "start seed");
 
 if (mode === "ab") {
-  const result = runPairedTournament({ playerCount, pairs: games, startSeed });
+  const result = runPairedTournament({
+    playerCount,
+    pairs: games,
+    startSeed,
+    candidatePolicy: CANDIDATE_V6,
+  });
   console.log(`AI A/B: ${result.pairs} pairs (${result.games} games), ${result.playerCount} players`);
   console.log(`completed=${result.completed} stalled=${result.stalled} commandLimit=${result.commandLimited}`);
   console.log(`candidate=${result.candidate.wins}/${result.candidate.entries} (${percent(result.candidate.winRate)}) baseline=${result.baseline.wins}/${result.baseline.entries} (${percent(result.baseline.winRate)})`);
@@ -22,7 +27,7 @@ if (mode === "ab") {
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
-    comparePolicies: [TACTICAL_V2, CANDIDATE_V5],
+    comparePolicies: [TACTICAL_V2, CANDIDATE_V6],
   }));
   const disagreements = results.flatMap((result) => result.disagreements);
   const categoryCounts = new Map<string, number>();

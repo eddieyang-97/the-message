@@ -5,7 +5,7 @@ export const CANDIDATE_V3: BotPolicy = {
   beliefModel: "exact",
   scoring: "tactical",
   burnBase: 7,
-  reactionDiscipline: false,
+  reactionConservation: 0,
 };
 
 export const CANDIDATE_V4: BotPolicy = {
@@ -17,5 +17,11 @@ export const CANDIDATE_V4: BotPolicy = {
 export const CANDIDATE_V5: BotPolicy = {
   ...CANDIDATE_V4,
   id: "candidate-v5",
-  reactionDiscipline: true,
+  reactionConservation: 1.5,
+};
+
+export const CANDIDATE_V6: BotPolicy = {
+  ...CANDIDATE_V5,
+  id: "candidate-v6",
+  reactionConservation: 0.75,
 };

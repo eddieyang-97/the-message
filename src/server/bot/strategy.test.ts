@@ -11,7 +11,7 @@ import {
   receiptUtility,
   TACTICAL_V2,
 } from "./strategy";
-import { CANDIDATE_V5 } from "../../ai-lab/policies";
+import { CANDIDATE_V5, CANDIDATE_V6 } from "../../ai-lab/policies";
 
 const blueCard = cardWhere((card) => card.color === "蓝");
 const redDirectCard = cardWhere((card) => card.color === "红" && card.transmission === "直达");
@@ -209,6 +209,8 @@ describe("bot strategy", () => {
       .toBe("PLAY_TRANSFER");
     expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V5 })?.type)
       .toBe("PASS_REACTION");
+    expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V6 })?.type)
+      .toBe("PLAY_TRANSFER");
   });
 
   it("uses a draw probe on a likely ally when its printed draw faction matches", () => {

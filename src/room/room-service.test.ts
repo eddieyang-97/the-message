@@ -529,6 +529,36 @@ describe("同房间新游戏", () => {
     expect(reset.reactionTimeoutSeconds).toBe(15);
     expect(reset.publicAuditLog.at(-1)).toBe("房主发起新游戏，所有玩家返回大厅");
   });
+
+  it("以共享序号交错房间与游戏日志，并在返回大厅时移除上一局游戏日志", () => {
+    const service = createService();
+    const room = fillDuel(service);
+    service.startRoom(room.code, room.hostId, "as-is");
+
+    service.synchronizeGameAuditLog(room.code, ["游戏事件一"]);
+    service.setReactionTimeout(room.code, room.hostId, 30);
+    const ordered = service.synchronizeGameAuditLog(room.code, ["游戏事件一", "游戏事件二"]);
+    service.synchronizeGameAuditLog(room.code, ["游戏事件一", "游戏事件二"]);
+
+    expect(ordered.publicAuditEvents.slice(-3).map((event) => ({
+      text: event.text,
+      source: event.source,
+    }))).toEqual([
+      { text: "游戏事件一", source: "game" },
+      { text: "房主将反应时限改为 30 秒", source: "room" },
+      { text: "游戏事件二", source: "game" },
+    ]);
+    expect(ordered.publicAuditEvents.every((event, index, events) =>
+      index === 0 || event.sequence > events[index - 1]!.sequence
+    )).toBe(true);
+    expect(service.getRoom(room.code).publicAuditEvents).toHaveLength(
+      ordered.publicAuditEvents.length,
+    );
+
+    const reset = service.returnToLobby(room.code, room.hostId);
+    expect(reset.publicAuditEvents.some((event) => event.source === "game")).toBe(false);
+    expect(reset.publicAuditEvents.at(-1)?.text).toBe("房主发起新游戏，所有玩家返回大厅");
+  });
 });
 
 describe("反应时限", () => {
@@ -632,24 +662,25 @@ describe("断线暂停和房主判死", () => {
     expect(service.getRoom(room.code).gamePausedForDisconnect).toBe(false);
   });
 
-  it("死亡的原房主不能使用对局管理操作", () => {
+  it("死亡房主保留管理权限但不影响死亡玩家的游戏状态", () => {
     const service = createService();
     const room = fillDuel(service);
     service.startRoom(room.code, room.hostId, "as-is");
     service.synchronizePlayerDeaths(room.code, [room.hostId]);
     service.disconnect(room.code, room.guestId);
 
-    expectRoomError(
-      () => service.setReactionTimeout(room.code, room.hostId, 30),
-      "NOT_HOST",
-    );
-    expectRoomError(
-      () => service.markDisconnectedPlayerDead(room.code, room.hostId, room.guestId, () => {}),
-      "NOT_HOST",
-    );
+    expect(service.getRoom(room.code).hostPlayerId).toBe(room.hostId);
+    expect(service.setReactionTimeout(room.code, room.hostId, 30).reactionTimeoutSeconds)
+      .toBe(30);
+    expect(service.markDisconnectedPlayerDead(
+      room.code,
+      room.hostId,
+      room.guestId,
+      () => {},
+    ).players.find((player) => player.id === room.guestId)?.alive).toBe(false);
   });
 
-  it("游戏中房主离线或死亡后按顺时针永久移交", () => {
+  it("游戏中房主仅在离线后按顺时针永久移交", () => {
     const service = createService();
     const host = service.createRoom(5, "甲");
     const second = service.joinRoom(host.room.code, "乙");
@@ -668,11 +699,13 @@ describe("断线暂停和房主判死", () => {
     service.reconnect(host.room.code, host.reconnectToken);
     expect(service.getRoom(host.room.code).hostPlayerId).toBe(third.playerId);
     const afterDeath = service.synchronizePlayerDeaths(host.room.code, [third.playerId]);
-    expect(afterDeath.hostPlayerId).toBe(fourth.playerId);
-    expect(afterDeath.publicAuditLog.at(-1)).toBe("丁 成为房主");
+    expect(afterDeath.hostPlayerId).toBe(third.playerId);
+    const afterDisconnect = service.disconnect(host.room.code, third.playerId);
+    expect(afterDisconnect.hostPlayerId).toBe(fourth.playerId);
+    expect(afterDisconnect.publicAuditLog.at(-1)).toBe("丁 成为房主");
   });
 
-  it("双人连续断线时等待下一名存活玩家重连继任", () => {
+  it("双人连续断线时等待下一名玩家重连继任", () => {
     const service = createService();
     const host = service.createRoom(2, "甲");
     const guest = service.joinRoom(host.room.code, "乙");

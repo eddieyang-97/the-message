@@ -18,6 +18,7 @@ export {
   type RoomPlayerSnapshot,
   type RoomRandom,
   type RoomSnapshot,
+  type PublicAuditEvent,
   type SeatSwapRequestSnapshot,
   type StartRoomResult,
   type StartSeatMode,

@@ -32,6 +32,13 @@ export interface RoomSpectatorSnapshot {
   connected: boolean;
 }
 
+export interface PublicAuditEvent {
+  sequence: number;
+  timestamp: number;
+  text: string;
+  source: "room" | "game";
+}
+
 export interface RoomSnapshot {
   code: string;
   capacity: RoomCapacity;
@@ -44,6 +51,7 @@ export interface RoomSnapshot {
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   gamePausedForDisconnect: boolean;
   publicAuditLog: string[];
+  publicAuditEvents: PublicAuditEvent[];
 }
 
 export interface PlayerCredentials {

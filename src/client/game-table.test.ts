@@ -162,8 +162,9 @@ describe("automatic reaction passing", () => {
     ], true)).toBeUndefined();
   });
 
-  it("waits one second for reactions but skips unavailable lock immediately", () => {
-    expect(automaticPassDelayMs({ type: "PASS_REACTION" })).toBe(1_000);
+  it("immediately passes only when the player's hand is literally empty", () => {
+    expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 0)).toBe(0);
+    expect(automaticPassDelayMs({ type: "PASS_REACTION" }, 1)).toBe(1_000);
     expect(automaticPassDelayMs({ type: "PASS_LOCK" })).toBe(0);
   });
 });
@@ -246,24 +247,24 @@ describe("private hand inspection", () => {
 });
 
 describe("public audit log", () => {
-  it("places lobby history before gameplay history without duplicating shared entries", () => {
+  it("uses the shared server sequence to interleave room and gameplay entries", () => {
     expect(mergeAuditLogs(
+      ["stale projection entry"],
       [
-        "游戏初始化完成：2名玩家",
-        "乙开始以文本传递情报，当前接收者：甲",
-      ],
-      [
-        "甲 创建了房间",
-        "乙 加入了房间",
-        "房间以当前座位开始游戏",
-        "游戏初始化完成：2名玩家",
+        { sequence: 3, timestamp: 30, text: "乙开始以文本传递情报，当前接收者：甲", source: "game" },
+        { sequence: 1, timestamp: 10, text: "房间以当前座位开始游戏", source: "room" },
+        { sequence: 2, timestamp: 20, text: "游戏初始化完成：2名玩家", source: "game" },
       ],
     )).toEqual([
-      "甲 创建了房间",
-      "乙 加入了房间",
       "房间以当前座位开始游戏",
       "游戏初始化完成：2名玩家",
       "乙开始以文本传递情报，当前接收者：甲",
+    ]);
+  });
+
+  it("falls back to the game projection when ordered events are unavailable", () => {
+    expect(mergeAuditLogs(["游戏初始化完成：2名玩家"])).toEqual([
+      "游戏初始化完成：2名玩家",
     ]);
   });
 
