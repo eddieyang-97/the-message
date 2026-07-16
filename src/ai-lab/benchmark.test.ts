@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
 import { CANDIDATE_V6 } from "./policies";
-import { TACTICAL_V2 } from "../server/bot/strategy";
+import { LIVE_BOT_POLICY, TACTICAL_V2 } from "../server/bot/strategy";
 
 describe("AI self-play benchmark", () => {
   it("finishes deterministic duel batches without stalling", () => {
@@ -37,7 +37,7 @@ describe("AI self-play benchmark", () => {
       );
       expect(firstLeg.participants.map((entry) => entry.policy)).toEqual(
         secondLeg.participants.map((entry) =>
-          entry.policy === CANDIDATE_V6.id ? TACTICAL_V2.id : CANDIDATE_V6.id
+          entry.policy === CANDIDATE_V6.id ? LIVE_BOT_POLICY.id : CANDIDATE_V6.id
         ),
       );
     }

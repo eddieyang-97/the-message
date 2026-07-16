@@ -11,13 +11,13 @@ the production server runtime.
 - `policies.ts`: evaluation-only candidate policy configurations
 
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
-production to `tactical-v2`; candidate policies are evaluation-only until
-benchmark evidence and gameplay review justify an explicit promotion.
+production to `tactical-v3`, the promoted candidate-v5 configuration. Historical
+and candidate policies remain available for explicit evaluation and rollback.
 
 For a large five-player comparison, save an atomic checkpoint after each chunk:
 
 ```powershell
-npm run ai:campaign -- 5 5000 1 --candidate candidate-v5 --baseline tactical-v2 --chunk-size 100 --checkpoint .ai-results/v5-v2.json
+npm run ai:campaign -- 5 5000 1 --candidate candidate-v6 --baseline tactical-v3 --chunk-size 100 --checkpoint .ai-results/v6-v3.json
 ```
 
 If the process stops, repeat the command with `--resume`. A checkpoint is only

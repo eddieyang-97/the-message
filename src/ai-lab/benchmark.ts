@@ -1,5 +1,5 @@
 import { factionsForPlayerCount, type WinnerState } from "../game/engine";
-import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, TACTICAL_V2, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
+import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, LIVE_BOT_POLICY, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
 import { GameSessionService, type GameCommand } from "../server/game-session";
 import { CANDIDATE_V6 } from "./policies";
 
@@ -117,7 +117,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
   if (options.policies && options.policies.length !== ids.length) {
     throw new Error("policies must contain exactly one policy per player");
   }
-  const policies = options.policies ?? ids.map(() => TACTICAL_V2);
+  const policies = options.policies ?? ids.map(() => LIVE_BOT_POLICY);
   const roomCode = `BENCH-${options.seed}`;
   const games = new GameSessionService();
   games.create(roomCode, ids, options.seed);
@@ -207,10 +207,10 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
   const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicy =>
-    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V6) : (options.baselinePolicy ?? TACTICAL_V2)
+    index % 2 === 0 ? (options.candidatePolicy ?? CANDIDATE_V6) : (options.baselinePolicy ?? LIVE_BOT_POLICY)
   );
   const candidatePolicy = options.candidatePolicy ?? CANDIDATE_V6;
-  const baselinePolicy = options.baselinePolicy ?? TACTICAL_V2;
+  const baselinePolicy = options.baselinePolicy ?? LIVE_BOT_POLICY;
   const secondLeg = firstLeg.map((policy): BotPolicy =>
     policy.id === candidatePolicy.id ? baselinePolicy : candidatePolicy
   );

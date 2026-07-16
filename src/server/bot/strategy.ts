@@ -28,7 +28,14 @@ export const TACTICAL_V2: BotPolicy = {
   burnBase: 7,
   reactionConservation: 0,
 };
-export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V2;
+export const TACTICAL_V3: BotPolicy = {
+  id: "tactical-v3",
+  beliefModel: "exact",
+  scoring: "tactical",
+  burnBase: 4,
+  reactionConservation: 1.5,
+};
+export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V3;
 
 const PASS_REACTION_SCORE = 5;
 const SEPARATION_CARD_COST = 1;

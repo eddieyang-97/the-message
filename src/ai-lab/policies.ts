@@ -1,4 +1,4 @@
-import { TACTICAL_V2, type BotPolicy } from "../server/bot/strategy";
+import { TACTICAL_V2, TACTICAL_V3, type BotPolicy } from "../server/bot/strategy";
 
 export const CANDIDATE_V3: BotPolicy = {
   id: "candidate-v3",
@@ -15,9 +15,8 @@ export const CANDIDATE_V4: BotPolicy = {
 };
 
 export const CANDIDATE_V5: BotPolicy = {
-  ...CANDIDATE_V4,
+  ...TACTICAL_V3,
   id: "candidate-v5",
-  reactionConservation: 1.5,
 };
 
 export const CANDIDATE_V6: BotPolicy = {
@@ -28,6 +27,7 @@ export const CANDIDATE_V6: BotPolicy = {
 
 export const EVALUATION_POLICIES: readonly BotPolicy[] = [
   TACTICAL_V2,
+  TACTICAL_V3,
   CANDIDATE_V3,
   CANDIDATE_V4,
   CANDIDATE_V5,

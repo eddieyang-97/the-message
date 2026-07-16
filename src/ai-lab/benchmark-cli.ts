@@ -1,6 +1,6 @@
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
 import { CANDIDATE_V6 } from "./policies";
-import { TACTICAL_V2 } from "../server/bot/strategy";
+import { LIVE_BOT_POLICY } from "../server/bot/strategy";
 
 const mode = process.argv[2] === "ab"
   ? "ab"
@@ -27,7 +27,7 @@ if (mode === "ab") {
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
-    comparePolicies: [TACTICAL_V2, CANDIDATE_V6],
+    comparePolicies: [LIVE_BOT_POLICY, CANDIDATE_V6],
   }));
   const disagreements = results.flatMap((result) => result.disagreements);
   const categoryCounts = new Map<string, number>();

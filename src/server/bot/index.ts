@@ -13,6 +13,7 @@ export {
   LIVE_BOT_POLICY,
   observeBotProjection,
   TACTICAL_V2,
+  TACTICAL_V3,
   type BotPolicy,
   type BotDecision,
   type BotMemory,

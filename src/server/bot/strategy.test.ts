@@ -7,9 +7,11 @@ import {
   createBotMemory,
   createSeededBotRandom,
   factionBeliefs,
+  LIVE_BOT_POLICY,
   observeBotProjection,
   receiptUtility,
   TACTICAL_V2,
+  TACTICAL_V3,
 } from "./strategy";
 import { CANDIDATE_V5, CANDIDATE_V6 } from "../../ai-lab/policies";
 
@@ -30,6 +32,12 @@ const undercoverDrawProbe = cardWhere(
 );
 
 describe("bot strategy", () => {
+  it("promotes the candidate-v5 configuration as tactical-v3 while retaining tactical-v2", () => {
+    expect(LIVE_BOT_POLICY).toBe(TACTICAL_V3);
+    expect({ ...CANDIDATE_V5, id: TACTICAL_V3.id }).toEqual(TACTICAL_V3);
+    expect(TACTICAL_V2.id).toBe("tactical-v2");
+  });
+
   it("selects only a supplied legal action during normal prompts", () => {
     const projection = makeProjection({
       legalActions: [{ type: "CHOOSE_PROBE_IDENTITY", choice: "announce" }],
@@ -211,6 +219,8 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(projection, createBotMemory(projection), { policy: TACTICAL_V2 })?.type)
       .toBe("PLAY_TRANSFER");
     expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V5 })?.type)
+      .toBe("PASS_REACTION");
+    expect(chooseBotCommand(projection, createBotMemory(projection))?.type)
       .toBe("PASS_REACTION");
     expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V6 })?.type)
       .toBe("PLAY_TRANSFER");
