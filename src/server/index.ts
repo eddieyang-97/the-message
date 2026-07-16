@@ -25,3 +25,18 @@ export {
   type ReactionTimerSnapshot,
   type ReactionTimeoutSchedulerOptions,
 } from "./reaction-timeout";
+export {
+  BotRunner,
+  type BotRunnerClock,
+  type BotRunnerOptions,
+} from "./bot-runner";
+export {
+  chooseBotCommand,
+  chooseBotDecision,
+  createBotMemory,
+  createSeededBotRandom,
+  factionBeliefs,
+  observeBotProjection,
+  type BotDecision,
+  type BotMemory,
+} from "./bot-strategy";

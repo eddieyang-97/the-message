@@ -40,6 +40,15 @@ function createService(options: {
       "token-8",
     ]),
     swapRequestIdGenerator: sequence(["swap-1", "swap-2", "swap-3"]),
+    botIdGenerator: sequence([
+      "bot-1",
+      "bot-2",
+      "bot-3",
+      "bot-4",
+      "bot-5",
+      "bot-6",
+      "bot-7",
+    ]),
     random: () => options.random?.[randomIndex++] ?? 0,
   });
 }
@@ -106,6 +115,168 @@ describe("房间代码", () => {
       () => service.createRoom(2, "third", "BAD-01"),
       "INVALID_ROOM_CODE",
     );
+  });
+});
+
+describe("lobby bots", () => {
+  it("lets the host add uniquely named bots to selected empty seats", () => {
+    const service = createService();
+    const host = service.createRoom(5, "host");
+
+    const first = service.addBot(host.room.code, host.playerId, 4);
+    const second = service.addBot(host.room.code, host.playerId, 2);
+    expect(second.players.filter((player) => player.isBot)).toEqual([
+      expect.objectContaining({
+        id: "bot-2",
+        displayName: "机器人 2",
+        seatIndex: 2,
+        connected: true,
+        isHost: false,
+      }),
+      expect.objectContaining({
+        id: "bot-1",
+        displayName: "机器人 1",
+        seatIndex: 4,
+        connected: true,
+        isHost: false,
+      }),
+    ]);
+    expect(first.players.find((player) => player.id === host.playerId)?.isBot).toBe(false);
+  });
+
+  it("requires the host, an empty valid seat, capacity, and lobby phase", () => {
+    const service = createService();
+    const host = service.createRoom(2, "host");
+    const guest = service.joinRoom(host.room.code, "guest");
+
+    expectRoomError(
+      () => service.addBot(host.room.code, guest.playerId, 0),
+      "NOT_HOST",
+    );
+    expectRoomError(
+      () => service.addBot(host.room.code, host.playerId, 0),
+      "ROOM_FULL",
+    );
+    service.startRoom(host.room.code, host.playerId, "as-is");
+    expectRoomError(
+      () => service.addBot(host.room.code, host.playerId, 0),
+      "ROOM_ALREADY_STARTED",
+    );
+
+    const largerService = createService();
+    const larger = largerService.createRoom(5, "other");
+    expectRoomError(
+      () => largerService.addBot(larger.room.code, larger.playerId, 0),
+      "INVALID_SEAT",
+    );
+    expectRoomError(
+      () => largerService.addBot(larger.room.code, larger.playerId, 5),
+      "INVALID_SEAT",
+    );
+  });
+
+  it("lets only the host remove bots and rejects human targets", () => {
+    const service = createService();
+    const host = service.createRoom(5, "host");
+    const guest = service.joinRoom(host.room.code, "guest");
+    const withBot = service.addBot(host.room.code, host.playerId, 4);
+    const botId = withBot.players.find((player) => player.isBot)!.id;
+
+    expectRoomError(
+      () => service.removeBot(host.room.code, guest.playerId, botId),
+      "NOT_HOST",
+    );
+    expectRoomError(
+      () => service.removeBot(host.room.code, host.playerId, guest.playerId),
+      "PLAYER_NOT_BOT",
+    );
+    expect(service.removeBot(host.room.code, host.playerId, botId).players)
+      .toHaveLength(2);
+  });
+
+  it("starts and progresses with bots without treating them as disconnected", () => {
+    const service = createService();
+    const host = service.createRoom(2, "host");
+    const bot = service.addBot(host.room.code, host.playerId, 1).players.find(
+      (player) => player.isBot,
+    )!;
+
+    const started = service.startRoom(host.room.code, host.playerId, "as-is");
+    expect(started.seatOrder).toEqual([host.playerId, bot.id]);
+    expect(started.room.gamePausedForDisconnect).toBe(false);
+    expect(() => service.assertGameplayCanProgress(host.room.code)).not.toThrow();
+  });
+
+  it("deletes a lobby and its bots when its last human leaves", () => {
+    const service = createService();
+    const host = service.createRoom(2, "host");
+    service.addBot(host.room.code, host.playerId, 1);
+
+    expect(service.leaveLobby(host.room.code, host.playerId)).toBeUndefined();
+    expect(service.hasRoom(host.room.code)).toBe(false);
+  });
+});
+
+describe("disconnected player bot takeover", () => {
+  it("unpauses while AI controls a disconnected player and restores human control on reconnect", () => {
+    const service = createService();
+    const duel = fillDuel(service);
+    service.startRoom(duel.code, duel.hostId, "as-is");
+    service.disconnect(duel.code, duel.guestId);
+
+    expect(service.getRoom(duel.code).gamePausedForDisconnect).toBe(true);
+    const controlled = service.setBotTakeover(
+      duel.code,
+      duel.hostId,
+      duel.guestId,
+      true,
+    );
+    expect(controlled.gamePausedForDisconnect).toBe(false);
+    expect(controlled.players.find((player) => player.id === duel.guestId))
+      .toMatchObject({ connected: false, isBot: false, botControlled: true });
+    expect(() => service.assertGameplayCanProgress(duel.code)).not.toThrow();
+
+    const reconnected = service.reconnect(duel.code, duel.guestToken);
+    expect(reconnected.room.players.find((player) => player.id === duel.guestId))
+      .toMatchObject({ connected: true, botControlled: false });
+  });
+
+  it("rejects takeover of a connected player", () => {
+    const service = createService();
+    const duel = fillDuel(service);
+    service.startRoom(duel.code, duel.hostId, "as-is");
+    expectRoomError(
+      () => service.setBotTakeover(duel.code, duel.hostId, duel.guestId, true),
+      "PLAYER_NOT_DISCONNECTED",
+    );
+  });
+});
+
+describe("spectators", () => {
+  it("allows named spectators without consuming seats and reconnects them", () => {
+    const service = createService();
+    const host = service.createRoom(2, "host");
+    const spectator = service.spectateRoom(host.room.code, "viewer");
+
+    expect(spectator.isSpectator).toBe(true);
+    expect(spectator.room.players).toHaveLength(1);
+    expect(spectator.room.spectators).toEqual([
+      { id: spectator.playerId, displayName: "viewer", connected: true },
+    ]);
+    service.disconnect(host.room.code, spectator.playerId);
+    expect(service.getRoom(host.room.code).spectators[0]?.connected).toBe(false);
+    expect(service.reconnect(host.room.code, spectator.reconnectToken)).toMatchObject({
+      isSpectator: true,
+      room: { spectators: [expect.objectContaining({ connected: true })] },
+    });
+  });
+
+  it("allows spectators to enter after the game starts", () => {
+    const service = createService();
+    const duel = fillDuel(service);
+    service.startRoom(duel.code, duel.hostId, "as-is");
+
+    expect(service.spectateRoom(duel.code, "late viewer").room.phase).toBe("started");
   });
 });
 

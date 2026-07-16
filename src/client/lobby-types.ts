@@ -31,6 +31,7 @@ export interface LobbyPlayer {
   seat: number;
   isHost: boolean;
   isConnected: boolean;
+  isBot: boolean;
 }
 
 export interface SeatSwapRequest {

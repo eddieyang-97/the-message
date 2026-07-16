@@ -5,7 +5,7 @@ import type {
   RoomSnapshot,
   StartSeatMode,
 } from "../room";
-import type { PlayerProjection } from "../game/engine";
+import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { GameCommand } from "./game-session";
 import type { ReactionTimerSnapshot } from "./reaction-timeout";
 
@@ -23,6 +23,7 @@ export type Acknowledge<T = undefined> = (result: Ack<T>) => void;
 export interface SafeRoomSnapshot extends RoomSnapshot {
   viewerPlayerId: string;
   viewerIsHost: boolean;
+  viewerIsSpectator: boolean;
 }
 
 export interface SafeRoomEntryResult
@@ -45,6 +46,10 @@ export interface ClientToServerEvents {
     request: { roomCode: string; displayName: string },
     acknowledge: Acknowledge<SafeRoomEntryResult>,
   ) => void;
+  "room:spectate": (
+    request: { roomCode: string; displayName: string },
+    acknowledge: Acknowledge<SafeRoomEntryResult>,
+  ) => void;
   "room:reconnect": (
     request: { roomCode: string; reconnectToken: string },
     acknowledge: Acknowledge<SafeRoomEntryResult>,
@@ -59,6 +64,18 @@ export interface ClientToServerEvents {
   ) => void;
   "room:remove": (
     request: { targetPlayerId: string },
+    acknowledge: Acknowledge,
+  ) => void;
+  "room:bot:add": (
+    request: { seatIndex: number },
+    acknowledge: Acknowledge,
+  ) => void;
+  "room:bot:remove": (
+    request: { targetPlayerId: string },
+    acknowledge: Acknowledge,
+  ) => void;
+  "room:bot:takeover": (
+    request: { targetPlayerId: string; enabled: boolean },
     acknowledge: Acknowledge,
   ) => void;
   "room:move": (
@@ -103,6 +120,7 @@ export interface ServerToClientEvents {
   }) => void;
   "room:started": (result: SafeStartRoomResult) => void;
   "game:snapshot": (game: PlayerProjection) => void;
+  "game:spectator-snapshot": (game: SpectatorProjection) => void;
   "game:reaction-timer": (timer: ReactionTimerSnapshot | null) => void;
 }
 
@@ -111,6 +129,7 @@ export interface InterServerEvents {}
 export interface SocketData {
   roomCode?: string;
   playerId?: string;
+  isSpectator?: boolean;
   detached?: boolean;
 }
 
@@ -121,6 +140,7 @@ export function projectRoomForPlayer(
   return {
     ...room,
     players: room.players.map((player) => ({ ...player })),
+    spectators: room.spectators.map((spectator) => ({ ...spectator })),
     pendingSeatSwaps: room.pendingSeatSwaps
       .filter(
         (request) =>
@@ -130,5 +150,6 @@ export function projectRoomForPlayer(
     publicAuditLog: [...room.publicAuditLog],
     viewerPlayerId: playerId,
     viewerIsHost: room.hostPlayerId === playerId,
+    viewerIsSpectator: room.spectators.some((spectator) => spectator.id === playerId),
   };
 }

@@ -11,6 +11,7 @@ import {
   type RoomPlayerSnapshot,
   type RoomRandom,
   type RoomSnapshot,
+  type RoomSpectatorSnapshot,
   type SeatSwapRequestSnapshot,
   type StartRoomResult,
   type StartSeatMode,
@@ -21,11 +22,15 @@ const ROOM_CODE_PATTERN = /^[A-Z]{6}$/;
 const MAX_CODE_ATTEMPTS = 1_000;
 
 interface RoomPlayer extends RoomPlayerSnapshot {
-  reconnectToken: string;
+  reconnectToken?: string;
   joinedSequence: number;
 }
 
 interface SeatSwapRequest extends SeatSwapRequestSnapshot {}
+
+interface RoomSpectator extends RoomSpectatorSnapshot {
+  reconnectToken: string;
+}
 
 interface RoomRecord {
   code: string;
@@ -33,6 +38,7 @@ interface RoomRecord {
   phase: "lobby" | "started";
   hostPlayerId: string | null;
   players: Map<string, RoomPlayer>;
+  spectators: Map<string, RoomSpectator>;
   pendingSeatSwaps: Map<string, SeatSwapRequest>;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   publicAuditLog: string[];
@@ -45,6 +51,7 @@ export interface RoomServiceOptions {
   reconnectTokenGenerator?: RoomIdGenerator;
   swapRequestIdGenerator?: RoomIdGenerator;
   roomCodeGenerator?: RoomIdGenerator;
+  botIdGenerator?: RoomIdGenerator;
 }
 
 /**
@@ -58,6 +65,7 @@ export class RoomService {
   private readonly reconnectTokenGenerator: RoomIdGenerator;
   private readonly swapRequestIdGenerator: RoomIdGenerator;
   private readonly roomCodeGenerator: RoomIdGenerator;
+  private readonly botIdGenerator: RoomIdGenerator;
 
   constructor(options: RoomServiceOptions = {}) {
     this.random = options.random ?? Math.random;
@@ -67,6 +75,7 @@ export class RoomService {
     this.swapRequestIdGenerator = options.swapRequestIdGenerator ?? defaultOpaqueId;
     this.roomCodeGenerator =
       options.roomCodeGenerator ?? (() => generateRoomCode(this.random));
+    this.botIdGenerator = options.botIdGenerator ?? (() => `bot-${defaultOpaqueId()}`);
   }
 
   createRoom(
@@ -89,6 +98,8 @@ export class RoomService {
       displayName: name,
       seatIndex: 0,
       isHost: true,
+      isBot: false,
+      botControlled: false,
       connected: true,
       alive: true,
       joinedSequence: 0,
@@ -99,6 +110,7 @@ export class RoomService {
       phase: "lobby",
       hostPlayerId: creator.id,
       players: new Map([[creator.id, creator]]),
+      spectators: new Map(),
       pendingSeatSwaps: new Map(),
       reactionTimeoutSeconds: 15,
       publicAuditLog: [`${creator.displayName} 创建了房间`],
@@ -117,7 +129,7 @@ export class RoomService {
     }
 
     const name = normalizeDisplayName(displayName);
-    if ([...room.players.values()].some((player) => player.displayName === name)) {
+    if (identityNameTaken(room, name)) {
       throw new RoomError("DUPLICATE_DISPLAY_NAME", "房间内已有同名玩家");
     }
 
@@ -128,6 +140,8 @@ export class RoomService {
       displayName: name,
       seatIndex: firstEmptySeat(room),
       isHost: false,
+      isBot: false,
+      botControlled: false,
       connected: true,
       alive: true,
       joinedSequence: room.nextJoinedSequence++,
@@ -137,8 +151,38 @@ export class RoomService {
     return { ...credentials, room: this.snapshot(room) };
   }
 
+  spectateRoom(roomCode: string, displayName: string): RoomEntryResult {
+    const room = this.requireRoom(roomCode);
+    const name = normalizeDisplayName(displayName);
+    if (identityNameTaken(room, name)) {
+      throw new RoomError("DUPLICATE_DISPLAY_NAME", "房间内已有同名玩家或旁观者");
+    }
+    const credentials = this.createCredentials();
+    const spectator: RoomSpectator = {
+      id: credentials.playerId,
+      reconnectToken: credentials.reconnectToken,
+      displayName: name,
+      connected: true,
+    };
+    room.spectators.set(spectator.id, spectator);
+    room.publicAuditLog.push(`${name} 开始旁观`);
+    return { ...credentials, isSpectator: true, room: this.snapshot(room) };
+  }
+
   reconnect(roomCode: string, reconnectToken: string): RoomEntryResult {
     const room = this.requireRoom(roomCode);
+    const spectator = [...room.spectators.values()].find(
+      (candidate) => candidate.reconnectToken === reconnectToken,
+    );
+    if (spectator) {
+      spectator.connected = true;
+      return {
+        playerId: spectator.id,
+        reconnectToken: spectator.reconnectToken,
+        isSpectator: true,
+        room: this.snapshot(room),
+      };
+    }
     const player = [...room.players.values()].find(
       (candidate) => candidate.reconnectToken === reconnectToken,
     );
@@ -147,6 +191,7 @@ export class RoomService {
     }
     const wasConnected = player.connected;
     player.connected = true;
+    player.botControlled = false;
     if (!wasConnected) room.publicAuditLog.push(`${player.displayName} 已重新连接`);
     if (
       room.phase === "started" &&
@@ -159,13 +204,18 @@ export class RoomService {
     }
     return {
       playerId: player.id,
-      reconnectToken: player.reconnectToken,
+      reconnectToken: player.reconnectToken!,
       room: this.snapshot(room),
     };
   }
 
   disconnect(roomCode: string, playerId: string): RoomSnapshot {
     const room = this.requireRoom(roomCode);
+    const spectator = room.spectators.get(playerId);
+    if (spectator) {
+      spectator.connected = false;
+      return this.snapshot(room);
+    }
     const player = requirePlayer(room, playerId);
     player.connected = false;
     room.publicAuditLog.push(`${player.displayName} 已断开连接`);
@@ -173,11 +223,19 @@ export class RoomService {
     return this.snapshot(room);
   }
 
+  leaveSpectator(roomCode: string, spectatorId: string): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    if (!room.spectators.delete(spectatorId)) {
+      throw new RoomError("PLAYER_NOT_FOUND", "旁观者不存在");
+    }
+    return this.snapshot(room);
+  }
+
   leaveLobby(roomCode: string, playerId: string): RoomSnapshot | undefined {
     const room = this.requireRoom(roomCode);
     this.requireLobby(room);
     this.removePlayerRecord(room, requirePlayer(room, playerId));
-    if (room.players.size === 0) {
+    if (![...room.players.values()].some((player) => !player.isBot)) {
       this.rooms.delete(room.code);
       return undefined;
     }
@@ -194,10 +252,92 @@ export class RoomService {
     this.requireHost(room, hostPlayerId);
     const target = requirePlayer(room, targetPlayerId);
     this.removePlayerRecord(room, target);
-    if (room.players.size === 0) {
+    if (![...room.players.values()].some((player) => !player.isBot)) {
       this.rooms.delete(room.code);
       return undefined;
     }
+    return this.snapshot(room);
+  }
+
+  addBot(
+    roomCode: string,
+    hostPlayerId: string,
+    seatIndex: number,
+  ): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    this.requireLobby(room);
+    this.requireHost(room, hostPlayerId);
+    if (room.players.size >= room.capacity) {
+      throw new RoomError("ROOM_FULL", "房间已满");
+    }
+    requireSeat(room, seatIndex);
+    if (playerAtSeat(room, seatIndex)) {
+      throw new RoomError("INVALID_SEAT", "该座位已被占用");
+    }
+
+    const bot: RoomPlayer = {
+      id: this.botIdGenerator(),
+      displayName: nextBotName(room),
+      seatIndex,
+      isHost: false,
+      isBot: true,
+      botControlled: true,
+      connected: true,
+      alive: true,
+      joinedSequence: room.nextJoinedSequence++,
+    };
+    room.players.set(bot.id, bot);
+    room.publicAuditLog.push(`${bot.displayName} 加入了房间`);
+    return this.snapshot(room);
+  }
+
+  removeBot(
+    roomCode: string,
+    hostPlayerId: string,
+    botPlayerId: string,
+  ): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    this.requireLobby(room);
+    this.requireHost(room, hostPlayerId);
+    const bot = requirePlayer(room, botPlayerId);
+    if (!bot.isBot) {
+      throw new RoomError("PLAYER_NOT_BOT", "只能用此操作移除机器人");
+    }
+    this.removePlayerRecord(room, bot);
+    return this.snapshot(room);
+  }
+
+  setBotTakeover(
+    roomCode: string,
+    hostPlayerId: string,
+    targetPlayerId: string,
+    enabled: boolean,
+  ): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    if (room.phase !== "started") {
+      throw new RoomError("ROOM_NOT_STARTED", "游戏尚未开始");
+    }
+    this.requireHost(room, hostPlayerId);
+    const host = requirePlayer(room, hostPlayerId);
+    if (!host.alive) {
+      throw new RoomError("DEAD_PLAYER_CANNOT_ACT", "死亡房主不能指定 AI 接管");
+    }
+    const target = requirePlayer(room, targetPlayerId);
+    if (target.isBot) {
+      throw new RoomError("PLAYER_NOT_DISCONNECTED", "固定 AI 座位无需接管");
+    }
+    if (target.connected) {
+      throw new RoomError("PLAYER_NOT_DISCONNECTED", "只能接管已断线玩家");
+    }
+    if (!target.alive) {
+      throw new RoomError("PLAYER_ALREADY_DEAD", "死亡玩家不能由 AI 接管");
+    }
+    target.botControlled = enabled;
+    room.publicAuditLog.push(
+      enabled
+        ? `房主指定 AI 暂时接管 ${target.displayName}`
+        : `房主取消 AI 对 ${target.displayName} 的接管`,
+    );
     return this.snapshot(room);
   }
 
@@ -287,7 +427,7 @@ export class RoomService {
       throw new RoomError("ROOM_NOT_FULL", "所有座位坐满后才能开始");
     }
     const disconnected = [...room.players.values()].find(
-      (player) => !player.connected,
+      (player) => !player.isBot && !player.connected,
     );
     if (disconnected) {
       throw new RoomError(
@@ -365,7 +505,8 @@ export class RoomService {
       throw new RoomError("ROOM_NOT_STARTED", "游戏尚未开始");
     }
     const disconnected = [...room.players.values()].find(
-      (player) => player.alive && !player.connected,
+      (player) =>
+        !player.isBot && !player.botControlled && player.alive && !player.connected,
     );
     if (disconnected) {
       throw new RoomError(
@@ -493,13 +634,22 @@ export class RoomService {
       phase: room.phase,
       hostPlayerId: room.hostPlayerId,
       players,
+      spectators: [...room.spectators.values()].map(
+        ({ reconnectToken: _token, ...spectator }) => ({ ...spectator }),
+      ),
       pendingSeatSwaps: [...room.pendingSeatSwaps.values()].map((request) => ({
         ...request,
       })),
       reactionTimeoutSeconds: room.reactionTimeoutSeconds,
       gamePausedForDisconnect:
         room.phase === "started" &&
-        players.some((player) => player.alive && !player.connected),
+        players.some(
+          (player) =>
+            !player.isBot &&
+            !player.botControlled &&
+            player.alive &&
+            !player.connected,
+        ),
       publicAuditLog: [...room.publicAuditLog],
     };
   }
@@ -526,6 +676,12 @@ function normalizeDisplayName(value: string): string {
     throw new RoomError("INVALID_DISPLAY_NAME", "名字须为 1 至 16 个字符");
   }
   return normalized;
+}
+
+function identityNameTaken(room: RoomRecord, displayName: string): boolean {
+  return [...room.players.values(), ...room.spectators.values()].some(
+    (identity) => identity.displayName === displayName,
+  );
 }
 
 function requireRoomCode(value: string): string {
@@ -567,10 +723,20 @@ function clearSwapRequestsForPlayer(room: RoomRecord, playerId: string): void {
   }
 }
 
+function nextBotName(room: RoomRecord): string {
+  const names = new Set(
+    [...room.players.values()].map((player) => player.displayName),
+  );
+  for (let number = 1; ; number += 1) {
+    const candidate = `机器人 ${number}`;
+    if (!names.has(candidate)) return candidate;
+  }
+}
+
 function transferHostToLongestPresent(room: RoomRecord): void {
   const successor = [...room.players.values()].sort(
     (left, right) => left.joinedSequence - right.joinedSequence,
-  )[0];
+  ).find((player) => !player.isBot);
   if (!successor) return;
   for (const player of room.players.values()) player.isHost = false;
   successor.isHost = true;
@@ -599,7 +765,7 @@ function nextConnectedLivingHostCandidate(
   for (let offset = 1; offset <= room.capacity; offset += 1) {
     const seatIndex = (fromSeatIndex + offset) % room.capacity;
     const player = playerAtSeat(room, seatIndex);
-    if (player?.alive && player.connected) {
+    if (player?.alive && player.connected && !player.isBot) {
       return player;
     }
   }

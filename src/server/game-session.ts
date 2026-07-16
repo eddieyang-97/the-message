@@ -28,6 +28,7 @@ import {
   playSwap,
   playTransfer,
   projectGameForPlayer,
+  projectGameForSpectator,
   resolveHostImposedDeath,
   startTransmission,
   claimNoSecretOrderMatch,
@@ -35,6 +36,7 @@ import {
   type FixedTransmissionMethod,
   type GameState,
   type PlayerProjection,
+  type SpectatorProjection,
   type PublicTextReceiptChoice,
 } from "../game/engine";
 import type { PhysicalCardId, SecretOrderWord } from "../game/cards";
@@ -117,6 +119,10 @@ export class GameSessionService {
     return projectGameForPlayer(this.getState(roomCode), playerId);
   }
 
+  projectSpectator(roomCode: string): SpectatorProjection {
+    return projectGameForSpectator(this.getState(roomCode));
+  }
+
   resolveHostImposedDeath(roomCode: string, playerId: string): PlayerProjection {
     const state = this.getState(roomCode);
     if (!state.players[playerId]) {
@@ -134,7 +140,17 @@ export class GameSessionService {
     if (!state.players[actorId]) {
       throw new GameSessionError("NOT_A_GAME_PLAYER", "当前玩家不属于这局游戏");
     }
-    dispatchGameCommand(state, actorId, command);
+    const previousNotices = state.privateNotices[actorId];
+    state.privateNotices[actorId] = previousNotices.filter(
+      (notice) =>
+        notice.kind === "probePlayed" || notice.kind === "secretOrderPlayed",
+    );
+    try {
+      dispatchGameCommand(state, actorId, command);
+    } catch (error) {
+      state.privateNotices[actorId] = previousNotices;
+      throw error;
+    }
     return projectGameForPlayer(state, actorId);
   }
 }

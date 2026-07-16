@@ -7,6 +7,7 @@ import {
   factionsForPlayerCount,
   initializeGame,
   projectGameForPlayer,
+  projectGameForSpectator,
 } from "./engine";
 
 const standardCounts = [5, 6, 7, 8] as const;
@@ -125,6 +126,22 @@ describe("双人决斗牌组", () => {
 });
 
 describe("玩家私有投影", () => {
+  it("旁观投影不包含任何玩家私有身份、手牌或合法行动", () => {
+    const state = initializeGame(["甲", "乙"], 42);
+    const projection = projectGameForSpectator(state);
+
+    expect(projection.spectator).toBe(true);
+    expect("own" in projection).toBe(false);
+    expect("legalActions" in projection).toBe(false);
+    expect("privateNotices" in projection).toBe(false);
+    expect(projection.players.every((player) => player.faction === undefined)).toBe(true);
+    for (const player of Object.values(state.players)) {
+      for (const cardId of player.hand) {
+        expect(JSON.stringify(projection)).not.toContain(cardId);
+      }
+    }
+  });
+
   it("只公开查看者自己的阵营、手牌和私有映射", () => {
     const state = initializeGame(["甲", "乙"], 42);
     const ownSecretOrder = state.drawPile.find((id) => {

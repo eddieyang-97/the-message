@@ -158,11 +158,11 @@ Confirmed hand-limit timing:
 
 Confirmed:
 
-- When 直达, 文本, or 密电 returns to its active sender, the sender may use 转移.
+- Any current recipient may use 转移 during their own final receipt-response priority, provided the intelligence is not locked; this includes but is not limited to intelligence returned to its original sender.
 - 转移 chooses a different intended recipient.
 - The new recipient still receives a normal response window.
 - 截获 remains legal.
-- If the sender does not play 转移, they must accept the returned intelligence regardless of transmission method.
+- A returned original sender must accept unless they use 转移. Any transferred target is likewise committed to acceptance unless they use another legal 转移 before accepting.
 - The sender cannot decline returned 直达, 文本, or 密电 again.
 - Other confirmed legal reaction windows remain available before acceptance.
 
@@ -277,7 +277,7 @@ Confirmed:
 - This applies to returned 直达, 文本, and 密电.
 - Choose another intended recipient.
 - This does not cause immediate acceptance; normal response timing resumes.
-- After 转移 and its reactions resolve, the final transferred target is committed to acceptance. The sender receives the sender-first 锁定 opportunity, and the unlocked target may still use 破译 before the mandatory acceptance.
+- After 转移 and its reactions resolve, the final transferred target is committed to acceptance. No new 锁定 opportunity opens; the target may still use 破译, 掉包, or another legal 转移 before mandatory acceptance.
 - 调虎离山 cannot force the committed transferred target to refuse.
 - 截获 remains legal.
 
@@ -335,7 +335,7 @@ Confirmed:
   - 直达 returns to the original sender.
 - It is illegal when 锁定 requires the intended recipient to accept.
 - It is illegal against a successful interceptor because 截获 commits the interceptor to accepting.
-- It is illegal when returned intelligence reaches the original sender, who must accept unless using 转移.
+- It is illegal when the current recipient is already committed to acceptance by a returned or transferred intelligence; that recipient must accept unless using an unlocked 转移.
 - 识破 may counter 调虎离山 and restores the exact pending receipt decision.
 - 离间 cannot redirect 调虎离山.
 - It does not alter turn order or seat eligibility. If the intelligence continues to a new recipient, that player begins a normal receipt cycle.
@@ -365,7 +365,7 @@ The new target cannot be the original target.
 **Status:** CONFIRMED
 
 - Allows inspection of a 密电 or 直达 intelligence before its receipt decision resolves.
-- The recipient selected by a resolved 转移 may use 破译 before their mandatory acceptance.
+- The recipient selected by a resolved 转移 may use 破译, 掉包, or another 转移 before their mandatory acceptance, provided the intelligence is not locked.
 - Only the current intended recipient may use it.
 - Reveal the inspected intelligence privately only to that recipient.
 - It may be used only while the recipient still has a legal receipt decision or a pending mandatory acceptance after 转移.

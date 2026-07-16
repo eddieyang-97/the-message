@@ -15,6 +15,8 @@ export interface RoomLobbyProps {
   inviteUrl: string;
   capacity: PlayerCount;
   players: readonly LobbyPlayer[];
+  spectators?: readonly { id: string; displayName: string; connected: boolean }[];
+  isSpectator?: boolean;
   selfPlayerId: string;
   swapRequests?: readonly SeatSwapRequest[];
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
@@ -26,6 +28,8 @@ export interface RoomLobbyProps {
   onMoveSeat: (seat: number) => void;
   onRespondToSwap: (requestId: string, accept: boolean) => void;
   onRemovePlayer: (playerId: string) => void;
+  onAddBot: (seat: number) => void;
+  onRemoveBot: (playerId: string) => void;
   onLeaveRoom: () => void;
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
   onStartGame: (mode: StartMode) => void;
@@ -42,6 +46,8 @@ function SeatCard({
   disabled,
   onMoveSeat,
   onRemovePlayer,
+  onAddBot,
+  onRemoveBot,
 }: {
   seat: number;
   player?: LobbyPlayer;
@@ -50,6 +56,8 @@ function SeatCard({
   disabled: boolean;
   onMoveSeat: (seat: number) => void;
   onRemovePlayer: (playerId: string) => void;
+  onAddBot: (seat: number) => void;
+  onRemoveBot: (playerId: string) => void;
 }) {
   const isSelf = player?.id === selfPlayerId;
   const seatAction = player
@@ -70,13 +78,17 @@ function SeatCard({
             <strong>{player.displayName}</strong>
             <div className="badges">
               {player.isHost && <span className="badge badge--host">房主</span>}
-              <span className={`badge ${player.isConnected ? "badge--online" : "badge--offline"}`}>
-                {player.isConnected ? "在线" : "已断线"}
-              </span>
+              {player.isBot ? (
+                <span className="badge badge--bot">AI</span>
+              ) : (
+                <span className={`badge ${player.isConnected ? "badge--online" : "badge--offline"}`}>
+                  {player.isConnected ? "在线" : "已断线"}
+                </span>
+              )}
               {isSelf && <span className="badge">你</span>}
             </div>
           </div>
-          {!isSelf && (
+          {!isSelf && !player.isBot && (
             <button
               className="button button--small button--text"
               disabled={disabled}
@@ -86,7 +98,17 @@ function SeatCard({
               {seatAction}
             </button>
           )}
-          {isHost && !player.isHost && (
+          {isHost && player.isBot && (
+            <button
+              className="button button--small button--danger"
+              disabled={disabled}
+              onClick={() => onRemoveBot(player.id)}
+              type="button"
+            >
+              移除 AI
+            </button>
+          )}
+          {isHost && !player.isHost && !player.isBot && (
             <button
               className="button button--small button--danger"
               disabled={disabled}
@@ -109,6 +131,17 @@ function SeatCard({
           >
             移到这里
           </button>
+          {isHost && (
+            <button
+              aria-label={`在 ${seat} 号座位添加 AI`}
+              className="button button--small button--secondary"
+              disabled={disabled}
+              onClick={() => onAddBot(seat)}
+              type="button"
+            >
+              添加 AI
+            </button>
+          )}
         </>
       )}
     </article>
@@ -120,6 +153,8 @@ export function RoomLobby({
   inviteUrl,
   capacity,
   players,
+  spectators = [],
+  isSpectator = false,
   selfPlayerId,
   swapRequests = [],
   reactionTimeoutSeconds,
@@ -131,6 +166,8 @@ export function RoomLobby({
   onMoveSeat,
   onRespondToSwap,
   onRemovePlayer,
+  onAddBot,
+  onRemoveBot,
   onLeaveRoom,
   onReactionTimeoutChange,
   onStartGame,
@@ -147,7 +184,7 @@ export function RoomLobby({
     <main className="lobby-shell">
       <header className="room-header panel">
         <div>
-          <p className="eyebrow">等候室 · {players.length}/{capacity} 人</p>
+          <p className="eyebrow">等候室 · {players.length}/{capacity} 人 · {spectators.length} 名旁观者</p>
           <h1 className="room-code" aria-label={`房间码 ${roomCode}`}>
             {roomCode.toUpperCase()}
           </h1>
@@ -175,6 +212,13 @@ export function RoomLobby({
         <div className={`status-banner ${errorMessage ? "status-banner--error" : ""}`} role="status">
           {errorMessage ?? notice}
         </div>
+      )}
+
+      {spectators.length > 0 && (
+        <section className="panel spectator-list">
+          <strong>旁观者</strong>
+          <span>{spectators.map((spectator) => `${spectator.displayName}${spectator.connected ? "" : "（离线）"}`).join("、")}</span>
+        </section>
       )}
 
       {swapRequests.length > 0 && (
@@ -215,7 +259,7 @@ export function RoomLobby({
             <p className="eyebrow">顺时针座次</p>
             <h2 id="seats-heading">选择座位</h2>
           </div>
-          <p className="muted">点击空位直接移动；点击其他玩家发送换位请求。</p>
+          <p className="muted">{isSpectator ? "旁观者不占用座位。" : "点击空位直接移动；点击其他玩家发送换位请求。"}</p>
         </div>
         <div
           className="seat-ring"
@@ -223,11 +267,13 @@ export function RoomLobby({
         >
           {seats.map((seat) => (
             <SeatCard
-              disabled={isBusy}
+              disabled={isBusy || isSpectator}
               isHost={isHost}
               key={seat}
               onMoveSeat={onMoveSeat}
               onRemovePlayer={onRemovePlayer}
+              onAddBot={onAddBot}
+              onRemoveBot={onRemoveBot}
               player={playerBySeat.get(seat)}
               seat={seat}
               selfPlayerId={selfPlayerId}

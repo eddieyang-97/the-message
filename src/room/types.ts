@@ -12,6 +12,8 @@ export interface RoomPlayerSnapshot {
   displayName: string;
   seatIndex: number;
   isHost: boolean;
+  isBot: boolean;
+  botControlled: boolean;
   connected: boolean;
   alive: boolean;
 }
@@ -24,6 +26,12 @@ export interface SeatSwapRequestSnapshot {
   recipientSeatIndex: number;
 }
 
+export interface RoomSpectatorSnapshot {
+  id: string;
+  displayName: string;
+  connected: boolean;
+}
+
 export interface RoomSnapshot {
   code: string;
   capacity: RoomCapacity;
@@ -31,6 +39,7 @@ export interface RoomSnapshot {
   phase: RoomPhase;
   hostPlayerId: string | null;
   players: RoomPlayerSnapshot[];
+  spectators: RoomSpectatorSnapshot[];
   pendingSeatSwaps: SeatSwapRequestSnapshot[];
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   gamePausedForDisconnect: boolean;
@@ -43,6 +52,7 @@ export interface PlayerCredentials {
 }
 
 export interface RoomEntryResult extends PlayerCredentials {
+  isSpectator?: boolean;
   room: RoomSnapshot;
 }
 

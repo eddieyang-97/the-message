@@ -209,6 +209,7 @@ button:focus-visible {
 }
 
 .swap-panel { margin-top: 18px; padding: 18px 22px; }
+.spectator-list { display:flex; align-items:center; gap:12px; margin-top:14px; padding:12px 18px; }.spectator-list span { color:#71695e; }
 .swap-panel h2 { margin: 0 0 10px; font-size: 18px; }
 
 .swap-request {
@@ -297,6 +298,7 @@ button:focus-visible {
 .badge--host { background: #ede1ba; color: #715a08; }
 .badge--online { background: #dcecdf; color: #28613a; }
 .badge--offline { background: #eee0dd; color: #8b352b; }
+.badge--bot { background: #dde7ef; color: #31536d; }
 
 .empty-seat-label { color: #8a8175; }
 

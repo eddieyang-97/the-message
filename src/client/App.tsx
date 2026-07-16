@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { PlayerProjection } from "../game/engine";
+import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { RoomEntryResult, RoomSnapshot } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 import { GameTable } from "./GameTable";
@@ -16,11 +16,13 @@ import type {
   StartMode,
 } from "./lobby-types";
 import { RoomLobby } from "./RoomLobby";
+import { SpectatorTable } from "./SpectatorTable";
 import { createLobbySocketClient } from "./socket-client";
 
 interface StoredCredentials {
   playerId: string;
   reconnectToken: string;
+  isSpectator?: boolean;
 }
 
 const ROOM_PATH = /^\/([A-Za-z]{6})\/?$/;
@@ -40,7 +42,7 @@ function loadCredentials(roomCode: string): StoredCredentials | undefined {
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as Partial<StoredCredentials>;
     return typeof parsed.playerId === "string" && typeof parsed.reconnectToken === "string"
-      ? { playerId: parsed.playerId, reconnectToken: parsed.reconnectToken }
+      ? { playerId: parsed.playerId, reconnectToken: parsed.reconnectToken, isSpectator: parsed.isSpectator === true }
       : undefined;
   } catch {
     return undefined;
@@ -70,6 +72,7 @@ export function App() {
   const [errorMessage, setErrorMessage] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [game, setGame] = useState<PlayerProjection>();
+  const [spectatorGame, setSpectatorGame] = useState<SpectatorProjection>();
   const [connected, setConnected] = useState(true);
   const [reactionTimer, setReactionTimer] = useState<ReactionTimerSnapshot | null>(null);
 
@@ -77,12 +80,14 @@ export function App() {
     const nextCredentials = {
       playerId: entry.playerId,
       reconnectToken: entry.reconnectToken,
+      isSpectator: entry.isSpectator === true,
     };
     saveCredentials(entry.room.code, nextCredentials);
     setCredentials(nextCredentials);
     setRoom(entry.room);
     if (entry.room.phase === "lobby") {
       setGame(undefined);
+      setSpectatorGame(undefined);
       setReactionTimer(null);
     }
     setInvite({ kind: "valid", roomCode: entry.room.code });
@@ -112,6 +117,7 @@ export function App() {
     setRoom(undefined);
     setCredentials(undefined);
     setGame(undefined);
+    setSpectatorGame(undefined);
     setReactionTimer(null);
     setInvite({ kind: "none" });
     window.history.replaceState(null, "", "/");
@@ -124,6 +130,7 @@ export function App() {
   }), []);
 
   useEffect(() => client.onGameSnapshot(setGame), []);
+  useEffect(() => client.onSpectatorSnapshot(setSpectatorGame), []);
   useEffect(() => client.onReactionTimer(setReactionTimer), []);
   useEffect(() => client.onDisconnect(() => setConnected(false)), []);
 
@@ -136,11 +143,12 @@ export function App() {
   }), [credentials, enterRoom, room]);
 
   useEffect(() => {
-    if (room?.phase !== "lobby" || !game?.winner) return;
+    if (room?.phase !== "lobby" || (!game?.winner && !spectatorGame?.winner)) return;
     setGame(undefined);
+    setSpectatorGame(undefined);
     setReactionTimer(null);
     setNotice("已返回大厅，可以开始新游戏");
-  }, [game?.winner, room?.phase]);
+  }, [game?.winner, room?.phase, spectatorGame?.winner]);
 
   const runAction = useCallback(async (name: string, action: () => Promise<unknown>) => {
     setBusyAction(name);
@@ -168,10 +176,15 @@ export function App() {
     void runAction("join", async () => enterRoom(await client.joinRoom(input)));
   };
 
+  const spectateRoom = (input: JoinRoomInput) => {
+    void runAction("spectate", async () => enterRoom(await client.spectateRoom(input)));
+  };
+
   const goHome = useCallback(() => {
     setInvite({ kind: "none" });
     setErrorMessage(undefined);
     setGame(undefined);
+    setSpectatorGame(undefined);
     setReactionTimer(null);
     window.history.replaceState(null, "", "/");
   }, []);
@@ -185,6 +198,27 @@ export function App() {
         onBackHome={goHome}
         onCreateRoom={createRoom}
         onJoinRoom={joinRoom}
+        onSpectateRoom={spectateRoom}
+      />
+    );
+  }
+
+  if (credentials.isSpectator && spectatorGame) {
+    return (
+      <SpectatorTable
+        connected={connected}
+        onLeave={() => void runAction("leave", async () => {
+          await client.leaveRoom();
+          clearCredentials(room.code);
+          setRoom(undefined);
+          setCredentials(undefined);
+          setSpectatorGame(undefined);
+          goHome();
+        })}
+        playerDisplayNames={Object.fromEntries(room.players.map((player) => [player.id, player.displayName]))}
+        projection={spectatorGame}
+        roomAuditLog={room.publicAuditLog}
+        spectators={room.spectators}
       />
     );
   }
@@ -196,7 +230,11 @@ export function App() {
         connected={connected}
         disconnectedLivingPlayers={room.players
           .filter((player) => !player.connected && player.alive)
-          .map((player) => ({ id: player.id, displayName: player.displayName }))}
+          .map((player) => ({
+            id: player.id,
+            displayName: player.displayName,
+            botControlled: player.botControlled,
+          }))}
         errorMessage={errorMessage}
         isHost={room.hostPlayerId === credentials.playerId &&
           room.players.find((player) => player.id === credentials.playerId)?.alive !== false}
@@ -206,17 +244,27 @@ export function App() {
         })}
         projection={game}
         playerDisplayNames={Object.fromEntries(
-          room.players.map((player) => [player.id, player.displayName]),
+          room.players.map((player) => [
+            player.id,
+            player.botControlled && !player.isBot
+              ? `${player.displayName}（AI 接管）`
+              : player.displayName,
+          ]),
         )}
         reactionTimer={reactionTimer}
         reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
         roomAuditLog={room.publicAuditLog}
+        spectators={room.spectators}
         onReactionTimeoutChange={(seconds) => void runAction("timeout", () => client.setReactionTimeout({
           seconds: seconds === 0 ? null : seconds,
         }))}
         onMarkDisconnectedPlayerDead={(targetPlayerId) => void runAction(
           "mark-dead",
           () => client.markDisconnectedPlayerDead({ targetPlayerId }),
+        )}
+        onSetBotTakeover={(targetPlayerId, enabled) => void runAction(
+          "bot-takeover",
+          () => client.setBotTakeover({ targetPlayerId, enabled }),
         )}
         onNewGame={() => void runAction("new-game", () => client.returnToLobby())}
       />
@@ -229,6 +277,7 @@ export function App() {
     seat: player.seatIndex + 1,
     isHost: player.isHost,
     isConnected: player.connected,
+    isBot: player.isBot,
   }));
   const playerNames = new Map(room.players.map((player) => [player.id, player.displayName]));
   const swapRequests: SeatSwapRequest[] = room.pendingSeatSwaps
@@ -281,6 +330,10 @@ export function App() {
           .then(() => setNotice("邀请链接已复制"))
           .catch(() => setErrorMessage("无法复制链接，请手动复制地址栏链接"));
       }}
+      onAddBot={(seat) => void runAction(
+        "add-bot",
+        () => client.addBot({ seatIndex: seat - 1 }),
+      )}
       onLeaveRoom={leaveRoom}
       onMoveSeat={(seat) => void runAction("seat", () => client.requestSeat({ seatIndex: seat - 1 }))}
       onReactionTimeoutChange={(seconds: ReactionTimeoutSeconds) => void runAction(
@@ -293,12 +346,18 @@ export function App() {
         "remove",
         () => client.removePlayer({ targetPlayerId }),
       )}
+      onRemoveBot={(targetPlayerId) => void runAction(
+        "remove-bot",
+        () => client.removeBot({ targetPlayerId }),
+      )}
       onRespondToSwap={(requestId, accept) => void runAction(
         "swap",
         () => client.answerSeatSwap({ requestId, accept }),
       )}
       onStartGame={startGame}
       players={players}
+      spectators={room.spectators}
+      isSpectator={credentials.isSpectator === true}
       reactionTimeoutSeconds={(room.reactionTimeoutSeconds ?? 0) as ReactionTimeoutSeconds}
       roomCode={room.code}
       selfPlayerId={credentials.playerId}

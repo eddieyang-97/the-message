@@ -85,6 +85,14 @@ describe("试探", () => {
     if (probe.variant?.kind !== "probeIdentity") throw new Error("测试映射无效");
 
     playProbe(state, "甲", probeId, "乙");
+    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "probePlayed",
+        otherPlayerId: "乙",
+        card: expect.objectContaining({ id: probeId }),
+      }),
+    );
+    expect(projectGameForPlayer(state, "乙").privateNotices).toEqual([]);
     passAll(state);
 
     expect(projectGameForPlayer(state, "乙").legalActions).toEqual([
@@ -254,6 +262,14 @@ describe("秘密下达", () => {
 
     enterTransmissionPhase(state, "甲");
     playSecretOrder(state, "乙", orderId, word);
+    expect(projectGameForPlayer(state, "乙").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "secretOrderPlayed",
+        otherPlayerId: "甲",
+        card: expect.objectContaining({ id: orderId }),
+      }),
+    );
+    expect(projectGameForPlayer(state, "甲").privateNotices).toEqual([]);
     passAll(state);
     expect(state.hiddenSecretOrders).toContain(orderId);
     expect(state.auditLog.some((entry) => entry.includes("窗口结束"))).toBe(false);

@@ -19,9 +19,15 @@ export interface GameTableProps {
   isHost?: boolean;
   reactionTimeoutSeconds: ReactionTimeoutSeconds;
   roomAuditLog?: readonly string[];
-  disconnectedLivingPlayers?: readonly { id: string; displayName: string }[];
+  spectators?: readonly { id: string; displayName: string; connected: boolean }[];
+  disconnectedLivingPlayers?: readonly {
+    id: string;
+    displayName: string;
+    botControlled: boolean;
+  }[];
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
   onMarkDisconnectedPlayerDead: (playerId: string) => void;
+  onSetBotTakeover: (playerId: string, enabled: boolean) => void;
   onNewGame: () => void;
   onCommand: (command: GameCommand) => void;
 }
@@ -36,6 +42,12 @@ export function automaticPassCommand(
   return action?.type === "PASS_REACTION" || action?.type === "PASS_LOCK"
     ? action
     : undefined;
+}
+
+export function automaticPassDelayMs(
+  action: Extract<GameCommand, { type: "PASS_REACTION" | "PASS_LOCK" }>,
+): number {
+  return action.type === "PASS_REACTION" ? 1_000 : 0;
 }
 
 function loadAutoPassPreference(): boolean {
@@ -71,6 +83,56 @@ function ReactionCountdown({ timer }: { timer: ReactionTimerSnapshot }) {
     <span className={`reaction-countdown${timer.paused ? " reaction-countdown--paused" : ""}`}>
       {timer.paused ? `计时暂停 · ${remainingSeconds} 秒` : `${remainingSeconds} 秒`}
     </span>
+  );
+}
+
+function responseActionLabel(
+  item: PlayerProjection["responseStack"][number],
+): string {
+  if (item.kind === "intelligence") return "传递情报";
+  if (item.kind === "secretOrderWindow") return "秘密下达窗口";
+  return item.cardName ?? "卡牌行动";
+}
+
+function ResponsePanel({
+  projection,
+  playerDisplayNames,
+  reactionTimer,
+}: {
+  projection: PlayerProjection;
+  playerDisplayNames: Readonly<Record<string, string>>;
+  reactionTimer?: ReactionTimerSnapshot | null;
+}) {
+  const stack = projection.responseStack;
+  const current = stack.at(-1);
+  if (!projection.reactionWindow || !current) return null;
+  const currentResponder = projection.reactionWindow.currentResponderId;
+  return (
+    <section className="response-panel" aria-label="当前响应">
+      <div className="response-panel__heading">
+        <span>当前响应</span>
+        {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
+      </div>
+      <strong className="response-panel__action">
+        {current.sourcePlayerId
+          ? `【${playerDisplayNames[current.sourcePlayerId] ?? current.sourcePlayerId}】使用 ${responseActionLabel(current)}`
+          : responseActionLabel(current)}
+      </strong>
+      <span className="response-panel__target">
+        目标：【{playerDisplayNames[current.targetPlayerId] ?? current.targetPlayerId}】
+      </span>
+      {stack.length > 1 && (
+        <ol className="response-stack">
+          {stack.map((item, index) => (
+            <li className={index === stack.length - 1 ? "response-stack__current" : ""} key={item.id}>
+              <span>{item.sourcePlayerId ? `【${playerDisplayNames[item.sourcePlayerId] ?? item.sourcePlayerId}】` : ""}{responseActionLabel(item)}</span>
+              {index === stack.length - 1 && <em>← 当前响应</em>}
+            </li>
+          ))}
+        </ol>
+      )}
+      <small>等待：【{playerDisplayNames[currentResponder] ?? currentResponder}】响应</small>
+    </section>
   );
 }
 
@@ -175,12 +237,16 @@ function CardView({ card, selected, playable, onClick }: {
       className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}`}
       disabled={!onClick}
       onClick={onClick}
+      title={`${card.name} · ${card.color} · ${card.transmission}${card.unburnable ? " · 不可烧毁" : ""}`}
       type="button"
     >
       <strong>{card.name}</strong>
       <span>{card.color} · {card.transmission}</span>
       {variantText && <small>{variantText}</small>}
       {card.circle && <small>可选方向</small>}
+      {card.color === "黑" && card.unburnable && (
+        <small className="unburnable-badge">不可烧毁</small>
+      )}
     </button>
   );
 }
@@ -218,7 +284,13 @@ export function actionDetail(
     return `试探${variant ? `（${variant}）` : ""}${target ? ` → ${target}` : ""}`;
   }
   if (action.type === "PLAY_SECRET_ORDER") {
-    return `秘密下达「${action.word}」`;
+    const card = projection.own.hand.find(
+      (candidate) => candidate.id === action.cardId,
+    );
+    const color = card?.variant?.kind === "secretOrder"
+      ? card.variant.mapping[action.word]
+      : undefined;
+    return color ? `秘密下达：${color}` : "秘密下达";
   }
   if (action.type === "CHOOSE_PROBE_IDENTITY") {
     return action.choice === "announce" ? "公开身份代码" : "随机交出一张手牌";
@@ -295,9 +367,11 @@ export function GameTable({
   isHost = false,
   reactionTimeoutSeconds,
   roomAuditLog = [],
+  spectators = [],
   disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
   onMarkDisconnectedPlayerDead,
+  onSetBotTakeover,
   onNewGame,
   onCommand,
 }: GameTableProps) {
@@ -368,7 +442,13 @@ export function GameTable({
       return;
     }
     lastAutoPassPrompt.current = autoPassPrompt;
-    onCommand(autoPassAction);
+    const delayMs = automaticPassDelayMs(autoPassAction);
+    if (delayMs === 0) {
+      onCommand(autoPassAction);
+      return;
+    }
+    const timeout = window.setTimeout(() => onCommand(autoPassAction), delayMs);
+    return () => window.clearTimeout(timeout);
   }, [autoPassAction, autoPassNoAction, autoPassPrompt, busy, connected, onCommand]);
 
   const chooseTarget = (targetId: string) => {
@@ -383,6 +463,7 @@ export function GameTable({
         <div className="game-status">
           <span>牌堆 {projection.drawPileCount}</span>
           <span>弃牌 {projection.publicDiscard.length}</span>
+          <span>旁观：{spectators.filter((spectator) => spectator.connected).map((spectator) => spectator.displayName).join("、") || "无"}</span>
           <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断，游戏暂停"}</span>
           <label className="auto-pass-control">
             <input
@@ -415,19 +496,30 @@ export function GameTable({
             </label>
           )}
           {isHost && disconnectedLivingPlayers.map((player) => (
-            <button
-              className="mark-dead-button"
-              disabled={busy || !connected}
-              key={player.id}
-              onClick={() => {
-                if (window.confirm(`确定将已断线的 ${player.displayName} 判定为死亡吗？此操作会进行正常死亡结算。`)) {
-                  onMarkDisconnectedPlayerDead(player.id);
-                }
-              }}
-              type="button"
-            >
-              将 {player.displayName} 判定死亡
-            </button>
+            <span className="disconnected-player-actions" key={player.id}>
+              <button
+                className="ai-takeover-button"
+                disabled={busy || !connected}
+                onClick={() => onSetBotTakeover(player.id, !player.botControlled)}
+                type="button"
+              >
+                {player.botControlled
+                  ? `取消 AI 接管 ${player.displayName}`
+                  : `让 AI 接管 ${player.displayName}`}
+              </button>
+              <button
+                className="mark-dead-button"
+                disabled={busy || !connected}
+                onClick={() => {
+                  if (window.confirm(`确定将已断线的 ${player.displayName} 判定为死亡吗？此操作会进行正常死亡结算。`)) {
+                    onMarkDisconnectedPlayerDead(player.id);
+                  }
+                }}
+                type="button"
+              >
+                将 {player.displayName} 判定死亡
+              </button>
+            </span>
           ))}
         </div>
       </header>
@@ -451,7 +543,7 @@ export function GameTable({
               const isTarget = targetIds.has(id);
               return (
                 <article
-                  className={`table-player${isOwn ? " table-player--own" : ""}${player.alive ? "" : " table-player--dead"}${projection.activePlayerId === id ? " table-player--active" : ""}`}
+                  className={`table-player${isOwn ? " table-player--own" : ""}${player.alive ? "" : " table-player--dead"}${projection.activePlayerId === id ? " table-player--active" : ""}${projection.reactionWindow?.currentResponderId === id ? " table-player--responder" : ""}`}
                   key={id}
                   style={{ "--player-index": index, "--player-count": displaySeatOrder.length } as React.CSSProperties}
                 >
@@ -461,7 +553,10 @@ export function GameTable({
                     {player.faction && <span className="faction-badge">{player.faction}</span>}
                     {isTarget && <em>选择为目标</em>}
                   </button>
-                  <div className="intel-row" aria-label={`${playerDisplayNames[id] ?? id} 的情报`}>
+                  <div
+                    className={`intel-row${player.intelligence.length > 4 ? " intel-row--dense" : ""}`}
+                    aria-label={`${playerDisplayNames[id] ?? id} 的情报`}
+                  >
                     {player.intelligence.map((card) => {
                       const burnAction = selectedBurnActions.find(
                         (action) => action.targetPlayerId === id && action.targetIntelligenceCardId === card.id,
@@ -496,6 +591,13 @@ export function GameTable({
               </div>
             )}
 
+            {projection.reactionWindow ? (
+              <ResponsePanel
+                playerDisplayNames={playerDisplayNames}
+                projection={projection}
+                reactionTimer={reactionTimer}
+              />
+            ) : (
             <section className={`table-center${projection.transmission ? " table-center--transmission" : ""}`}>
               {projection.transmission ? (
                 <>
@@ -511,13 +613,14 @@ export function GameTable({
                 <><p>当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
               )}
             </section>
+            )}
           </div>
 
           <section className="prompt-panel">
             <div>
               <p>
                 {projection.reactionWindow ? `反应窗口：${projection.reactionWindow.kind}` : "行动提示"}
-                {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
+                {!projection.reactionWindow && reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
               </p>
               <h2>{promptTitle(projection)}</h2>
             </div>
@@ -529,6 +632,26 @@ export function GameTable({
               ))}
             </div>
           </section>
+
+          {projection.privateNotices.length > 0 && (
+            <section className="private-notices" aria-label="私人通知">
+              <h3>私人通知</h3>
+              {projection.privateNotices.map((notice, index) => (
+                <div className="private-notice" key={`${notice.kind}-${notice.card.id}-${index}`}>
+                  <p>
+                    {notice.kind === "publicTextGained"
+                      ? `你从【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】手中取得了这张牌：`
+                      : notice.kind === "publicTextLost"
+                        ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过公开文本从你手中取得了这张牌：`
+                        : notice.kind === "probePlayed"
+                          ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的试探详情：`
+                          : `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`}
+                  </p>
+                  <CardView card={notice.card} />
+                </div>
+              ))}
+            </section>
+          )}
 
           {inspectedHand.length > 0 && (
             <section className="inspected-panel">

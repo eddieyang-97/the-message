@@ -6,7 +6,7 @@ import type {
   StartRoomResult,
   StartSeatMode,
 } from "../room";
-import type { PlayerProjection } from "../game/engine";
+import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
 
 type AckSuccess<T> = { ok: true; data: T };
@@ -30,11 +30,15 @@ export interface LobbySocketClient {
     roomCode?: string;
   }): Promise<RoomEntryResult>;
   joinRoom(input: { roomCode: string; displayName: string }): Promise<RoomEntryResult>;
+  spectateRoom(input: { roomCode: string; displayName: string }): Promise<RoomEntryResult>;
   reconnect(input: { roomCode: string; reconnectToken: string }): Promise<RoomEntryResult>;
   leaveRoom(): Promise<void>;
   requestSeat(input: { seatIndex: number }): Promise<void>;
   answerSeatSwap(input: { requestId: string; accept: boolean }): Promise<void>;
   removePlayer(input: { targetPlayerId: string }): Promise<void>;
+  addBot(input: { seatIndex: number }): Promise<void>;
+  removeBot(input: { targetPlayerId: string }): Promise<void>;
+  setBotTakeover(input: { targetPlayerId: string; enabled: boolean }): Promise<void>;
   setReactionTimeout(input: { seconds: number | null }): Promise<void>;
   markDisconnectedPlayerDead(input: { targetPlayerId: string }): Promise<void>;
   startRoom(input: { seatMode: StartSeatMode }): Promise<StartRoomResult>;
@@ -45,6 +49,7 @@ export interface LobbySocketClient {
   onConnect(listener: () => void): () => void;
   onDisconnect(listener: () => void): () => void;
   onGameSnapshot(listener: (projection: PlayerProjection) => void): () => void;
+  onSpectatorSnapshot(listener: (projection: SpectatorProjection) => void): () => void;
   onReactionTimer(listener: (timer: ReactionTimerSnapshot | null) => void): () => void;
   sendGameCommand(command: GameCommand): Promise<PlayerProjection>;
   disconnect(): void;
@@ -74,11 +79,15 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
   return {
     createRoom: (input) => emitAck(socket, "room:create", input),
     joinRoom: (input) => emitAck(socket, "room:join", input),
+    spectateRoom: (input) => emitAck(socket, "room:spectate", input),
     reconnect: (input) => emitAck(socket, "room:reconnect", input),
     leaveRoom: () => emitAck(socket, "room:leave", {}),
     requestSeat: (input) => emitAck(socket, "room:move", input),
     answerSeatSwap: (input) => emitAck(socket, "room:swap:respond", input),
     removePlayer: (input) => emitAck(socket, "room:remove", input),
+    addBot: (input) => emitAck(socket, "room:bot:add", input),
+    removeBot: (input) => emitAck(socket, "room:bot:remove", input),
+    setBotTakeover: (input) => emitAck(socket, "room:bot:takeover", input),
     setReactionTimeout: (input) => emitAck(socket, "room:timeout", input),
     markDisconnectedPlayerDead: (input) => emitAck(socket, "room:mark-dead", input),
     startRoom: (input) => emitAck(socket, "room:start", input),
@@ -108,6 +117,10 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
     onGameSnapshot(listener) {
       socket.on("game:snapshot", listener);
       return () => socket.off("game:snapshot", listener);
+    },
+    onSpectatorSnapshot(listener) {
+      socket.on("game:spectator-snapshot", listener);
+      return () => socket.off("game:spectator-snapshot", listener);
     },
     onReactionTimer(listener) {
       socket.on("game:reaction-timer", listener);

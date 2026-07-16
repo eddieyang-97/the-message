@@ -4,6 +4,7 @@ import type { PhysicalCard } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import {
   actionDetail,
+  automaticPassDelayMs,
   automaticPassCommand,
   cardVariantText,
   factionBackgroundClass,
@@ -66,7 +67,7 @@ describe("game table card parameters", () => {
       { type: "PLAY_SECRET_ORDER", cardId: "p1-12", word: "看雨" },
       projection,
       {},
-    )).toBe("秘密下达「看雨」");
+    )).toBe("秘密下达：蓝");
     expect(actionDetail(
       { type: "CHOOSE_PROBE_IDENTITY", choice: "announce" },
       projection,
@@ -105,6 +106,11 @@ describe("automatic reaction passing", () => {
       { type: "PASS_LOCK" },
       { type: "PLAY_LOCK", cardId: "p1-03" },
     ])).toBeUndefined();
+  });
+
+  it("waits one second for reactions but skips unavailable lock immediately", () => {
+    expect(automaticPassDelayMs({ type: "PASS_REACTION" })).toBe(1_000);
+    expect(automaticPassDelayMs({ type: "PASS_LOCK" })).toBe(0);
   });
 });
 

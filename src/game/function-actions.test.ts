@@ -129,6 +129,7 @@ describe("行动阶段功能牌框架", () => {
     putInHand(state, "甲", publicText);
 
     playPublicText(state, "甲", publicText, "乙");
+    const targetHandBefore = [...state.players["乙"].hand];
 
     expect(state.reactionWindow?.responderOrder).toEqual([
       "丙",
@@ -144,6 +145,29 @@ describe("行动阶段功能牌框架", () => {
 
     passReaction(state, "乙");
     expect(state.activeFunctionAction).toBeUndefined();
+    expect(state.auditLog).toContain(
+      "甲交给乙公开文本【黑 · 文本 · 可选方向；特工摸1张；其他阵营选择摸1张或2张】",
+    );
+    expect(state.auditLog).toContain("甲完成与乙的公开文本交换");
+    const takenCardId = targetHandBefore.find(
+      (cardId) => !state.players["乙"].hand.includes(cardId),
+    );
+    expect(takenCardId).toBeDefined();
+    expect(projectGameForPlayer(state, "甲").privateNotices).toEqual([
+      expect.objectContaining({
+        kind: "publicTextGained",
+        otherPlayerId: "乙",
+        card: expect.objectContaining({ id: takenCardId }),
+      }),
+    ]);
+    expect(projectGameForPlayer(state, "乙").privateNotices).toEqual([
+      expect.objectContaining({
+        kind: "publicTextLost",
+        otherPlayerId: "甲",
+        card: expect.objectContaining({ id: takenCardId }),
+      }),
+    ]);
+    expect(projectGameForPlayer(state, "丙").privateNotices).toEqual([]);
   });
 
   it("识破取消栈顶功能牌，且一次原始行动最多使用一次离间", () => {

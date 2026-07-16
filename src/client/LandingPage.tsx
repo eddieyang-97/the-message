@@ -15,6 +15,7 @@ export interface LandingPageProps {
   errorMessage?: string;
   onCreateRoom: (input: CreateRoomInput) => void;
   onJoinRoom: (input: JoinRoomInput) => void;
+  onSpectateRoom: (input: JoinRoomInput) => void;
   onBackHome?: () => void;
 }
 function normalizedName(value: string): string {
@@ -44,6 +45,7 @@ export function LandingPage({
   errorMessage,
   onCreateRoom,
   onJoinRoom,
+  onSpectateRoom,
   onBackHome,
 }: LandingPageProps) {
   const [createName, setCreateName] = useState("");
@@ -86,6 +88,20 @@ export function LandingPage({
     }
     setFormError(undefined);
     onJoinRoom({
+      displayName: normalizedName(joinName),
+      roomCode: normalizedRoomCode(code),
+    });
+  };
+
+  const spectate = () => {
+    const code = invite.kind === "valid" ? invite.roomCode : roomCode;
+    const validationError = nameError(joinName) ?? roomCodeError(code);
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+    setFormError(undefined);
+    onSpectateRoom({
       displayName: normalizedName(joinName),
       roomCode: normalizedRoomCode(code),
     });
@@ -140,6 +156,9 @@ export function LandingPage({
             )}
             <button className="button button--primary button--wide" disabled={busy} type="submit">
               {busy ? "正在加入…" : "加入房间"}
+            </button>
+            <button className="button button--secondary button--wide" disabled={busy} onClick={spectate} type="button">
+              {busy ? "正在进入…" : "旁观房间"}
             </button>
           </form>
           {onBackHome && (
@@ -232,6 +251,9 @@ export function LandingPage({
 
             <button className="button button--secondary button--wide" disabled={busy} type="submit">
               {busy ? "正在加入…" : "加入房间"}
+            </button>
+            <button className="button button--text button--wide" disabled={busy} onClick={spectate} type="button">
+              旁观房间
             </button>
           </form>
         </section>

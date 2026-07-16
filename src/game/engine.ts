@@ -251,6 +251,17 @@ export interface GameState {
   randomState: number;
   winner?: WinnerState;
   auditLog: string[];
+  privateNotices: Record<PlayerId, PrivateCardNotice[]>;
+}
+
+export interface PrivateCardNotice {
+  kind:
+    | "publicTextGained"
+    | "publicTextLost"
+    | "probePlayed"
+    | "secretOrderPlayed";
+  otherPlayerId: PlayerId;
+  cardId: PhysicalCardId;
 }
 
 export interface PublicPlayerProjection {
@@ -276,6 +287,11 @@ export interface PlayerProjection {
     hand: PhysicalCard[];
   };
   auditLog: string[];
+  privateNotices: Array<{
+    kind: PrivateCardNotice["kind"];
+    otherPlayerId: PlayerId;
+    card: PhysicalCard;
+  }>;
   transmission?: {
     senderId: PlayerId;
     method: FixedTransmissionMethod;
@@ -298,6 +314,14 @@ export interface PlayerProjection {
     kind: ReactionWindow["kind"];
     currentResponderId: PlayerId;
   };
+  responseStack: Array<{
+    id: string;
+    kind: "card" | "counter" | "intelligence" | "secretOrderWindow";
+    sourcePlayerId?: PlayerId;
+    targetPlayerId: PlayerId;
+    cardName?: PhysicalCard["name"];
+    targetInteractionId?: string;
+  }>;
   activeFunctionAction?: {
     kind: ActiveFunctionKind;
     sourcePlayerId: PlayerId;
@@ -381,6 +405,13 @@ export interface PlayerProjection {
       }
   >;
 }
+
+export type SpectatorProjection = Omit<
+  PlayerProjection,
+  "own" | "legalActions" | "privateNotices"
+> & {
+  spectator: true;
+};
 
 const CARD_BY_ID = new Map<PhysicalCardId, PhysicalCard>(
   PHYSICAL_DECK.map((card) => [card.id, card]),
@@ -554,6 +585,7 @@ export function initializeGame(playerIds: readonly PlayerId[], seed: number): Ga
       "首位行动玩家已随机选出",
       `${activePlayerId}在首回合开始时摸2张牌`,
     ],
+    privateNotices: Object.fromEntries(playerIds.map((id) => [id, []])),
   };
   assertGameStateInvariants(state);
   return state;
@@ -755,13 +787,13 @@ export function assertGameStateInvariants(state: GameState): void {
         throw new Error("功能牌响应窗口与当前功能牌行动不一致");
       }
     } else if (state.reactionWindow.kind === "transfer") {
-      const hasTransferFrame = state.interactionStack.some(
-        (frame) => frame.kind === "transfer",
-      );
+      const transferFrame = [...state.interactionStack]
+        .reverse()
+        .find((frame) => frame.kind === "transfer");
       if (
-        !hasTransferFrame ||
-        !state.transmission?.returnedToSender ||
-        state.transmission.intendedRecipientId !== state.transmission.senderId
+        !transferFrame ||
+        !state.transmission?.pendingTransfer ||
+        transferFrame.sourcePlayerId !== state.transmission.intendedRecipientId
       ) {
         throw new Error("转移互动与响应窗口关联不一致");
       }
@@ -1031,6 +1063,26 @@ function cardById(id: PhysicalCardId): PhysicalCard {
   return card;
 }
 
+function describePublicTextCard(card: PhysicalCard): string {
+  if (card.name !== "公开文本") throw new Error("只能公开描述公开文本牌");
+  const marks = [
+    card.color,
+    card.transmission,
+    ...(card.circle ? ["可选方向"] : []),
+    ...(card.unburnable ? ["不可烧毁"] : []),
+  ];
+  let effect: string;
+  if (card.color === "红" || card.color === "蓝") {
+    const mandatoryFaction = card.color === "红" ? "潜伏" : "军情";
+    effect = `${mandatoryFaction}必须弃1张；其他阵营选择摸1张或弃1张`;
+  } else if (card.variant?.kind === "publicTextBlack") {
+    effect = `${card.variant.mandatoryDrawFaction}摸1张；其他阵营选择摸1张或2张`;
+  } else {
+    throw new Error("公开文本缺少实体牌效果参数");
+  }
+  return `公开文本【${marks.join(" · ")}；${effect}】`;
+}
+
 function projectedCardById(id: PhysicalCardId): PhysicalCard {
   return structuredClone(cardById(id));
 }
@@ -1194,6 +1246,7 @@ function beginNormalReceiptCycle(
   state: GameState,
   recipientId: PlayerId,
   returnedToSender: boolean,
+  skipLockOffer = false,
 ): void {
   const transmission = state.transmission;
   if (!transmission) throw new Error("当前没有待处理的情报");
@@ -1202,7 +1255,7 @@ function beginNormalReceiptCycle(
   transmission.interceptorCommitted = false;
   transmission.transferredRecipientCommitted = false;
   transmission.receiptCycle += 1;
-  transmission.lockOfferUsed = returnedToSender;
+  transmission.lockOfferUsed = returnedToSender || skipLockOffer;
   transmission.locked = false;
   transmission.pendingTransfer = undefined;
   transmission.pendingSwap = undefined;
@@ -1212,7 +1265,7 @@ function beginNormalReceiptCycle(
   state.interactionStack = [];
   state.reactionWindow = undefined;
 
-  if (returnedToSender) {
+  if (returnedToSender || skipLockOffer) {
     transmission.receiptStage = "reactions";
     openIntelligenceReactionWindow(state, recipientId);
   } else {
@@ -1523,6 +1576,11 @@ export function playSecretOrder(
   }
   actor.hand.splice(index, 1);
   state.hiddenSecretOrders.push(cardId);
+  state.privateNotices[actorId].push({
+    kind: "secretOrderPlayed",
+    otherPlayerId: state.activePlayerId,
+    cardId,
+  });
   pending.stage = "reactions";
   pending.sourcePlayerId = actorId;
   pending.sourceCardId = cardId;
@@ -1727,6 +1785,11 @@ export function playProbe(
   beginActiveFunctionAction(state, actorId, cardId, kind, targetId);
   state.publicDiscard.splice(state.publicDiscard.indexOf(cardId), 1);
   state.removedProbes.push(cardId);
+  state.privateNotices[actorId].push({
+    kind: "probePlayed",
+    otherPlayerId: targetId,
+    cardId,
+  });
   state.auditLog.push(`${actorId}对${targetId}使用试探，等待响应`);
   assertGameStateInvariants(state);
 }
@@ -1828,16 +1891,30 @@ function finishActiveFunctionAction(state: GameState): void {
     );
   } else if (action.kind === "publicText") {
     const poolSize = target.hand.length;
+    const publicText = cardById(action.sourceCardId);
     const stagedIndex = state.publicDiscard.indexOf(action.sourceCardId);
     if (stagedIndex < 0) throw new Error("公开文本结算状态无效");
     state.publicDiscard.splice(stagedIndex, 1);
     target.hand.push(action.sourceCardId);
+    state.auditLog.push(
+      `${source.id}交给${target.id}${describePublicTextCard(publicText)}`,
+    );
     if (poolSize === 0) {
-      state.auditLog.push(`${source.id}交给${target.id}公开文本；目标已无原有手牌可取得`);
+      state.auditLog.push(`${target.id}已无原有手牌可供${source.id}取得`);
     } else {
       const chosenIndex = Math.floor(nextStateRandom(state) * poolSize);
       const [obtainedCardId] = target.hand.splice(chosenIndex, 1);
       if (!obtainedCardId) throw new Error("公开文本随机选牌失败");
+      state.privateNotices[source.id].push({
+        kind: "publicTextGained",
+        otherPlayerId: target.id,
+        cardId: obtainedCardId,
+      });
+      state.privateNotices[target.id].push({
+        kind: "publicTextLost",
+        otherPlayerId: source.id,
+        cardId: obtainedCardId,
+      });
       if (cardById(obtainedCardId).name === "公开文本") {
         state.publicDiscard.push(obtainedCardId);
         state.auditLog.push(`${source.id}随机取得公开文本并将其公开弃置`);
@@ -2615,12 +2692,10 @@ export function playTransfer(
     throw new Error("当前没有可转移的情报");
   }
   if (
-    actorId !== state.activePlayerId ||
-    actorId !== transmission.senderId ||
     actorId !== transmission.intendedRecipientId ||
-    !transmission.returnedToSender
+    transmission.locked
   ) {
-    throw new Error("只有情报返回时的当前发送者可以使用转移");
+    throw new Error("只有未被锁定情报的当前接收者可以使用转移");
   }
   if (
     state.reactionWindow?.kind !== "intelligence" ||
@@ -2668,7 +2743,7 @@ function resolveTransfer(state: GameState): void {
     throw new Error("当前没有待结算的转移");
   }
   const targetId = pending.targetId;
-  beginNormalReceiptCycle(state, targetId, false);
+  beginNormalReceiptCycle(state, targetId, false, true);
   transmission.transferredRecipientCommitted = true;
   state.auditLog.push(`转移结算，当前接收者：${targetId}`);
   assertGameStateInvariants(state);
@@ -3298,13 +3373,15 @@ export function projectGameForPlayer(
         .filter((cardId) => cardById(cardId).name === "锁定")
         .map((cardId) => ({ type: "PLAY_LOCK" as const, cardId }))
     : [];
+  const currentReactionResponderId =
+    state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex];
   const transferActions =
     transmission &&
     !transmission.pendingTransfer &&
-    transmission.returnedToSender &&
-    transmission.senderId === viewerId &&
     transmission.intendedRecipientId === viewerId &&
-    state.activePlayerId === viewerId
+    !transmission.locked &&
+    state.reactionWindow?.kind === "intelligence" &&
+    currentReactionResponderId === viewerId
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "转移")
           .flatMap((cardId) =>
@@ -3317,9 +3394,41 @@ export function projectGameForPlayer(
               })),
           )
       : [];
-  const currentReactionResponderId =
-    state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex];
   const activeFunctionAction = state.activeFunctionAction;
+  const responseFrames = state.reactionWindow?.kind === "burn"
+    ? state.burnContexts.at(-1)?.frames ?? []
+    : state.reactionWindow?.kind === "function"
+      ? state.activeFunctionStack
+      : state.reactionWindow?.kind === "secretOrder"
+        ? state.secretOrderStack
+        : state.interactionStack;
+  const responseStack: PlayerProjection["responseStack"] = responseFrames.map(
+    (frame) => ({
+      id: frame.id,
+      kind: frame.kind === "counter" ? "counter" : "card",
+      sourcePlayerId: frame.sourcePlayerId,
+      targetPlayerId: frame.targetPlayerId,
+      cardName: cardById(frame.sourceCardId).name,
+      targetInteractionId: frame.targetInteractionId,
+    }),
+  );
+  if (state.reactionWindow && responseStack.length === 0) {
+    responseStack.push(
+      state.reactionWindow.kind === "secretOrder"
+        ? {
+            id: "secret-order-window",
+            kind: "secretOrderWindow",
+            targetPlayerId: state.activePlayerId,
+          }
+        : {
+            id: `intelligence-${transmission?.receiptCycle ?? 0}`,
+            kind: "intelligence",
+            sourcePlayerId: transmission?.senderId,
+            targetPlayerId:
+              transmission?.intendedRecipientId ?? state.reactionWindow.affectedPlayerId,
+          },
+    );
+  }
   const canViewerBurn =
     viewer.alive &&
     ((currentReactionResponderId === viewerId && Boolean(state.reactionWindow)) ||
@@ -3546,6 +3655,11 @@ export function projectGameForPlayer(
       hand: viewer.hand.map(projectedCardById),
     },
     auditLog: [...state.auditLog],
+    privateNotices: state.privateNotices[viewerId].map((notice) => ({
+      kind: notice.kind,
+      otherPlayerId: notice.otherPlayerId,
+      card: projectedCardById(notice.cardId),
+    })),
     transmission: transmission
       ? {
           senderId: transmission.senderId,
@@ -3581,6 +3695,7 @@ export function projectGameForPlayer(
             ],
         }
       : undefined,
+    responseStack,
     activeFunctionAction: activeFunctionAction
       ? {
           kind: activeFunctionAction.kind,
@@ -3720,5 +3835,37 @@ export function projectGameForPlayer(
           !activeFunctionAction
         ? [...activeFunctionActions, ...burnActions, { type: "ENTER_TRANSMISSION_PHASE" }]
         : activeFunctionActions,
+  };
+}
+
+export function projectGameForSpectator(state: GameState): SpectatorProjection {
+  const base = projectGameForPlayer(state, state.seatOrder[0]);
+  const {
+    own: _own,
+    legalActions: _legalActions,
+    privateNotices: _privateNotices,
+    ...publicView
+  } = base;
+  return {
+    ...publicView,
+    spectator: true,
+    players: base.players.map(({ hand: _hand, ...player }) => ({ ...player })),
+    transmission: base.transmission
+      ? {
+          ...base.transmission,
+          card: base.transmission.faceUp ? base.transmission.card : undefined,
+          decrypted: false,
+        }
+      : undefined,
+    activeFunctionAction: base.activeFunctionAction
+      ? { ...base.activeFunctionAction, inspectedHand: undefined }
+      : undefined,
+    pendingSecretOrder: base.pendingSecretOrder
+      ? {
+          ...base.pendingSecretOrder,
+          requiredColor: undefined,
+          inspectedHand: undefined,
+        }
+      : undefined,
   };
 }

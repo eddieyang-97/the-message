@@ -517,16 +517,58 @@ describe("转移", () => {
     expect(state.transmission).toBeUndefined();
   });
 
-  it("直达尚未返回时不能使用转移", () => {
+  it("非原发送者也可在自己即将接收未锁定情报时使用转移", () => {
     const state = initializedWithActive(players, 62);
     const directCard = cardIdWhere((card) => card.transmission === "直达");
     const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
+    const chainedTransfer = cardIdWhere((card) => card.name === "转移", [directCard, transferCard]);
     putCardInHand(state, "甲", directCard, 0);
-    putCardInHand(state, "甲", transferCard, 1);
+    putCardInHand(state, "乙", transferCard, 0);
+    putCardInHand(state, "丁", chainedTransfer, 0);
     startTransmission(state, "甲", directCard, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    passUntilReactionTurn(state, "乙");
 
-    expect(() => playTransfer(state, "甲", transferCard, "丁")).toThrow(
-      "只有情报返回时的当前发送者可以使用转移",
+    expect(projectGameForPlayer(state, "乙").legalActions).toContainEqual({
+      type: "PLAY_TRANSFER",
+      cardId: transferCard,
+      targetId: "丁",
+    });
+    playTransfer(state, "乙", transferCard, "丁");
+    finishCurrentReactionWindow(state);
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "丁",
+      receiptStage: "reactions",
+      lockOfferUsed: true,
+      transferredRecipientCommitted: true,
+    });
+    passUntilReactionTurn(state, "丁");
+    expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
+      type: "PLAY_TRANSFER",
+      cardId: chainedTransfer,
+      targetId: "戊",
+    });
+  });
+
+  it("锁定后的当前接收者不能使用转移", () => {
+    const state = initializedWithActive(players, 621);
+    const directCard = cardIdWhere((card) => card.transmission === "直达");
+    const transferCard = cardIdWhere((card) => card.name === "转移", [directCard]);
+    const lockCard = cardIdWhere((card) => card.name === "锁定", [directCard, transferCard]);
+    putCardInHand(state, "甲", directCard, 0);
+    putCardInHand(state, "甲", lockCard, 1);
+    putCardInHand(state, "乙", transferCard, 0);
+    startTransmission(state, "甲", directCard, { targetId: "乙" });
+    playLock(state, "甲", lockCard);
+    passUntilReactionTurn(state, "乙");
+
+    expect(projectGameForPlayer(state, "乙").legalActions).not.toContainEqual({
+      type: "PLAY_TRANSFER",
+      cardId: transferCard,
+      targetId: "丁",
+    });
+    expect(() => playTransfer(state, "乙", transferCard, "丁")).toThrow(
+      "只有未被锁定情报的当前接收者可以使用转移",
     );
   });
 
@@ -672,6 +714,11 @@ describe("发送者锁定与目标最后响应", () => {
     expect(state.transmission?.locked).toBe(false);
     playCounter(state, "乙", counterCounter, state.interactionStack.at(-1)!.id);
     expect(state.transmission?.locked).toBe(true);
+    expect(projectGameForPlayer(state, "丁").responseStack).toEqual([
+      expect.objectContaining({ kind: "card", sourcePlayerId: "甲", cardName: "锁定" }),
+      expect.objectContaining({ kind: "counter", sourcePlayerId: "丙", cardName: "识破" }),
+      expect.objectContaining({ kind: "counter", sourcePlayerId: "乙", cardName: "识破" }),
+    ]);
     passAllReactions(state);
     expect(projectGameForPlayer(state, "乙").legalActions).toEqual([
       { type: "ACCEPT_INTELLIGENCE" },
@@ -847,18 +894,17 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     declineAfterReactions(state, "乙");
     passUntilReactionTurn(state, "甲");
     playTransfer(state, "甲", transfer, "丁");
-    passAllReactions(state);
+    finishCurrentReactionWindow(state);
 
     expect(state.transmission).toMatchObject({
       intendedRecipientId: "丁",
-      receiptStage: "lockOffer",
-      lockOfferUsed: false,
+      receiptStage: "reactions",
+      lockOfferUsed: true,
       locked: false,
     });
-    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+    expect(projectGameForPlayer(state, "甲").legalActions).not.toContainEqual({
       type: "PASS_LOCK",
     });
-    passLockOpportunity(state, "甲");
     expect(projectGameForPlayer(state, "戊").legalActions).toContainEqual({
       type: "PLAY_SWAP",
       cardId: swap,

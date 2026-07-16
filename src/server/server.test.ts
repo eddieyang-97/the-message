@@ -33,6 +33,69 @@ describe("game server sessions", () => {
     server = undefined;
   });
 
+  it("lets the host manage bot seats and start a bot-filled room", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 42, botDelayMs: 60_000 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const host = connect(port);
+    sockets.push(host);
+    await connected(host);
+
+    const created = await emitAck<SafeRoomEntryResult>(host, "room:create", {
+      capacity: 2,
+      displayName: "房主",
+    });
+    expect(await emitRawAck(host, "room:bot:add", { seatIndex: 1 })).toMatchObject({
+      ok: true,
+    });
+    const bot = server.roomService
+      .getRoom(created.room.code)
+      .players.find((player) => player.isBot);
+    expect(bot).toMatchObject({ seatIndex: 1, connected: true });
+
+    expect(await emitRawAck(host, "room:bot:remove", {
+      targetPlayerId: bot!.id,
+    })).toMatchObject({ ok: true });
+    await emitAck(host, "room:bot:add", { seatIndex: 1 });
+    const started = await emitAck<SafeStartRoomResult>(host, "room:start", {
+      seatMode: "as-is",
+    });
+    expect(started.seatOrder).toHaveLength(2);
+    expect(server.roomService.getRoom(created.room.code).phase).toBe("started");
+  });
+
+  it("allows reconnectable spectators without exposing private game state", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 42, botDelayMs: 60_000 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const host = connect(port);
+    const spectator = connect(port);
+    sockets.push(host, spectator);
+    await Promise.all([connected(host), connected(spectator)]);
+    const created = await emitAck<SafeRoomEntryResult>(host, "room:create", {
+      capacity: 2,
+      displayName: "房主",
+    });
+    const watching = await emitAck<SafeRoomEntryResult>(spectator, "room:spectate", {
+      roomCode: created.room.code,
+      displayName: "观众",
+    });
+    expect(watching.isSpectator).toBe(true);
+    expect(watching.room.spectators).toContainEqual(
+      expect.objectContaining({ displayName: "观众", connected: true }),
+    );
+    await emitAck(host, "room:bot:add", { seatIndex: 1 });
+    const spectatorGame = onceEvent(spectator, "game:spectator-snapshot");
+    await emitAck<SafeStartRoomResult>(host, "room:start", { seatMode: "as-is" });
+    const projection = await spectatorGame;
+    expect(projection.spectator).toBe(true);
+    expect("own" in projection).toBe(false);
+    expect("legalActions" in projection).toBe(false);
+    expect(await emitRawAck(spectator, "game:command", {
+      command: { type: "PASS_REACTION" },
+    })).toMatchObject({ ok: false, error: { code: "NOT_A_GAME_PLAYER" } });
+  });
+
   it("starts an authoritative game and emits only viewer projections", async () => {
     server = createGameServer({ gameSeedGenerator: () => 42 });
     await server.listen(0, "127.0.0.1");
@@ -240,6 +303,54 @@ describe("game server sessions", () => {
         targetPlayerId: joined.playerId,
       }),
     ).toMatchObject({ ok: false, error: { code: "PLAYER_ALREADY_DEAD" } });
+  });
+
+  it("lets the host assign temporary AI control and returns control on reconnect", async () => {
+    server = createGameServer({ gameSeedGenerator: () => 7, botDelayMs: 60_000 });
+    await server.listen(0, "127.0.0.1");
+    const port = (server.httpServer.address() as AddressInfo).port;
+    const host = connect(port);
+    const guest = connect(port);
+    sockets.push(host, guest);
+    await Promise.all([connected(host), connected(guest)]);
+    const created = await emitAck<SafeRoomEntryResult>(host, "room:create", {
+      capacity: 2,
+      displayName: "房主",
+    });
+    const joined = await emitAck<SafeRoomEntryResult>(guest, "room:join", {
+      roomCode: created.room.code,
+      displayName: "朋友",
+    });
+    await emitAck<SafeStartRoomResult>(host, "room:start", { seatMode: "as-is" });
+    guest.disconnect();
+    await eventually(
+      () => server!.roomService.getRoom(created.room.code).gamePausedForDisconnect,
+    );
+
+    await emitAck(host, "room:bot:takeover", {
+      targetPlayerId: joined.playerId,
+      enabled: true,
+    });
+    expect(server.roomService.getRoom(created.room.code)).toMatchObject({
+      gamePausedForDisconnect: false,
+      players: expect.arrayContaining([
+        expect.objectContaining({
+          id: joined.playerId,
+          connected: false,
+          botControlled: true,
+        }),
+      ]),
+    });
+
+    const returning = connect(port);
+    sockets.push(returning);
+    await connected(returning);
+    const reconnected = await emitAck<SafeRoomEntryResult>(returning, "room:reconnect", {
+      roomCode: created.room.code,
+      reconnectToken: joined.reconnectToken,
+    });
+    expect(reconnected.room.players.find((player) => player.id === joined.playerId))
+      .toMatchObject({ connected: true, botControlled: false });
   });
 
   it("transfers in-game host authority and does not restore it on reconnect", async () => {

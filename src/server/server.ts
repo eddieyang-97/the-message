@@ -5,6 +5,7 @@ import express, { type Express } from "express";
 import { Server } from "socket.io";
 
 import { RoomError, RoomService, type StartRoomResult } from "../room";
+import { BotRunner, type BotRunnerClock } from "./bot-runner";
 import { GameSessionError, GameSessionService } from "./game-session";
 import {
   ReactionTimeoutScheduler,
@@ -44,6 +45,8 @@ export interface CreateGameServerOptions {
   gameSessionService?: GameSessionService;
   gameSeedGenerator?: () => number;
   reactionTimerClock?: ReactionTimerClock;
+  botClock?: BotRunnerClock;
+  botDelayMs?: number;
 }
 
 export interface GameServer {
@@ -53,6 +56,7 @@ export interface GameServer {
   roomService: RoomService;
   gameSessionService: GameSessionService;
   reactionTimeoutScheduler: ReactionTimeoutScheduler;
+  botRunner: BotRunner;
   listen(port: number, hostname?: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -109,7 +113,14 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     for (const roomSocket of sockets) {
       const playerId = roomSocket.data.playerId;
       if (playerId) {
-        roomSocket.emit("game:snapshot", gameSessionService.project(roomCode, playerId));
+        if (roomSocket.data.isSpectator) {
+          roomSocket.emit(
+            "game:spectator-snapshot",
+            gameSessionService.projectSpectator(roomCode),
+          );
+        } else {
+          roomSocket.emit("game:snapshot", gameSessionService.project(roomCode, playerId));
+        }
       }
     }
   }
@@ -145,9 +156,27 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     onGameAdvanced: async (roomCode) => {
       await broadcastRoom(roomCode);
       await broadcastGame(roomCode);
+      botRunner.reconcile(roomCode);
     },
     onTimerChanged: broadcastReactionTimer,
     clock: options.reactionTimerClock,
+  });
+
+  const botRunner = new BotRunner({
+    rooms: roomService,
+    games: gameSessionService,
+    delayMs: options.botDelayMs,
+    clock: options.botClock,
+    dispatch: (roomCode, actorId, command) => {
+      roomService.assertGameplayCanProgress(roomCode);
+      gameSessionService.dispatch(roomCode, actorId, command);
+      synchronizeRoomDeaths(roomCode);
+    },
+    onAdvanced: async (roomCode) => {
+      await broadcastRoom(roomCode);
+      await broadcastGame(roomCode);
+      reactionTimeoutScheduler.reconcile(roomCode);
+    },
   });
 
   io.on("connection", (socket) => {
@@ -179,10 +208,12 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     const bindIdentity = async (
       roomCode: string,
       playerId: string,
+      isSpectator = false,
     ): Promise<void> => {
       const previousSocketId = playerSockets.get(playerId);
       socket.data.roomCode = roomCode;
       socket.data.playerId = playerId;
+      socket.data.isSpectator = isSpectator;
       socket.data.detached = false;
       playerSockets.set(playerId, socket.id);
       if (previousSocketId && previousSocketId !== socket.id) {
@@ -203,6 +234,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       socket.data.detached = true;
       socket.data.roomCode = undefined;
       socket.data.playerId = undefined;
+      socket.data.isSpectator = undefined;
       if (roomCode) await socket.leave(roomCode);
     };
 
@@ -238,6 +270,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
           data: {
             playerId: entry.playerId,
             reconnectToken: entry.reconnectToken,
+            isSpectator: entry.isSpectator,
             room: projectRoomForPlayer(entry.room, entry.playerId),
           },
         });
@@ -247,26 +280,62 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       }
     });
 
-    socket.on("room:reconnect", async (request, acknowledge) => {
+    socket.on("room:spectate", async (request, acknowledge) => {
       try {
         requireUnbound();
-        const entry = roomService.reconnect(request.roomCode, request.reconnectToken);
-        await bindIdentity(entry.room.code, entry.playerId);
+        const entry = roomService.spectateRoom(request.roomCode, request.displayName);
+        await bindIdentity(entry.room.code, entry.playerId, true);
         acknowledge({
           ok: true,
           data: {
             playerId: entry.playerId,
             reconnectToken: entry.reconnectToken,
+            isSpectator: true,
+            room: projectRoomForPlayer(entry.room, entry.playerId),
+          },
+        });
+        await broadcastRoom(entry.room.code);
+        if (gameSessionService.has(entry.room.code)) {
+          socket.emit(
+            "game:spectator-snapshot",
+            gameSessionService.projectSpectator(entry.room.code),
+          );
+        }
+      } catch (error) {
+        acknowledge(failure(error));
+      }
+    });
+
+    socket.on("room:reconnect", async (request, acknowledge) => {
+      try {
+        requireUnbound();
+        const entry = roomService.reconnect(request.roomCode, request.reconnectToken);
+        botRunner.releasePlayer(entry.room.code, entry.playerId);
+        await bindIdentity(entry.room.code, entry.playerId, entry.isSpectator === true);
+        acknowledge({
+          ok: true,
+          data: {
+            playerId: entry.playerId,
+            reconnectToken: entry.reconnectToken,
+            isSpectator: entry.isSpectator,
             room: projectRoomForPlayer(entry.room, entry.playerId),
           },
         });
         await broadcastRoom(entry.room.code);
         if (gameSessionService.has(entry.room.code)) {
           reactionTimeoutScheduler.reconcile(entry.room.code);
-          socket.emit(
-            "game:snapshot",
-            gameSessionService.project(entry.room.code, entry.playerId),
-          );
+          if (entry.isSpectator) {
+            socket.emit(
+              "game:spectator-snapshot",
+              gameSessionService.projectSpectator(entry.room.code),
+            );
+          } else {
+            socket.emit(
+              "game:snapshot",
+              gameSessionService.project(entry.room.code, entry.playerId),
+            );
+          }
+          botRunner.reconcile(entry.room.code);
           socket.emit(
             "game:reaction-timer",
             reactionTimeoutScheduler.snapshot(entry.room.code),
@@ -285,6 +354,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
         acknowledge({ ok: true, data: undefined });
         await broadcastRoom(room.code);
         reactionTimeoutScheduler.reconcile(room.code);
+        botRunner.reconcile(room.code);
       } catch (error) {
         acknowledge(failure(error));
       }
@@ -293,7 +363,9 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     socket.on("room:leave", async (_request, acknowledge) => {
       try {
         const identity = requireIdentity();
-        const room = roomService.leaveLobby(identity.roomCode, identity.playerId);
+        const room = socket.data.isSpectator
+          ? roomService.leaveSpectator(identity.roomCode, identity.playerId)
+          : roomService.leaveLobby(identity.roomCode, identity.playerId);
         socket.emit("room:removed", { roomCode: identity.roomCode, reason: "left" });
         await detachIdentity();
         acknowledge({ ok: true, data: undefined });
@@ -328,6 +400,48 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       }
       playerSockets.delete(request.targetPlayerId);
       if (result.room) await broadcastRoom(result.room.code);
+    });
+
+    socket.on("room:bot:add", async (request, acknowledge) => {
+      const room = reply(acknowledge, () => {
+        const identity = requireIdentity();
+        return roomService.addBot(
+          identity.roomCode,
+          identity.playerId,
+          request.seatIndex,
+        );
+      });
+      if (room) await broadcastRoom(room.code);
+    });
+
+    socket.on("room:bot:remove", async (request, acknowledge) => {
+      const room = reply(acknowledge, () => {
+        const identity = requireIdentity();
+        return roomService.removeBot(
+          identity.roomCode,
+          identity.playerId,
+          request.targetPlayerId,
+        );
+      });
+      if (room) await broadcastRoom(room.code);
+    });
+
+    socket.on("room:bot:takeover", async (request, acknowledge) => {
+      const result = reply(acknowledge, () => {
+        const identity = requireIdentity();
+        const room = roomService.setBotTakeover(
+          identity.roomCode,
+          identity.playerId,
+          request.targetPlayerId,
+          request.enabled,
+        );
+        return { identity, room };
+      });
+      if (!result) return;
+      botRunner.releasePlayer(result.identity.roomCode, request.targetPlayerId);
+      await broadcastRoom(result.room.code);
+      reactionTimeoutScheduler.reconcile(result.room.code);
+      botRunner.reconcile(result.room.code);
     });
 
     socket.on("room:move", async (request, acknowledge) => {
@@ -416,6 +530,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
         });
         await broadcastGame(result.room.code);
         reactionTimeoutScheduler.reconcile(result.room.code);
+        botRunner.reconcile(result.room.code);
       } catch (error) {
         acknowledge(failure(error));
       }
@@ -434,6 +549,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
         );
         gameSessionService.delete(identity.roomCode);
         reactionTimeoutScheduler.cancel(identity.roomCode);
+        botRunner.clear(identity.roomCode);
         acknowledge({ ok: true, data: undefined });
         await broadcastRoom(room.code);
       } catch (error) {
@@ -457,6 +573,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
         await broadcastRoom(room.code);
         await broadcastGame(room.code);
         reactionTimeoutScheduler.reconcile(room.code);
+        botRunner.reconcile(room.code);
       }
     });
 
@@ -474,6 +591,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
         await broadcastRoom(identity.roomCode);
         await broadcastGame(identity.roomCode);
         reactionTimeoutScheduler.reconcile(identity.roomCode);
+        botRunner.reconcile(identity.roomCode);
       } catch (error) {
         acknowledge(failure(error));
       }
@@ -488,6 +606,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
         roomService.disconnect(roomCode, playerId);
         void broadcastRoom(roomCode);
         reactionTimeoutScheduler.reconcile(roomCode);
+        botRunner.reconcile(roomCode);
       } catch {
         // The room or player may already have been removed by a concurrent command.
       }
@@ -501,6 +620,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     roomService,
     gameSessionService,
     reactionTimeoutScheduler,
+    botRunner,
     listen: (port, hostname) =>
       new Promise((resolveListen, reject) => {
         const onError = (error: Error): void => reject(error);
@@ -513,6 +633,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
     close: () =>
       new Promise((resolveClose, reject) => {
         reactionTimeoutScheduler.close();
+        botRunner.close();
         io.close((error) => {
           if (error) reject(error);
           else resolveClose();
