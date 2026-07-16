@@ -19,6 +19,9 @@ const blueDirectCard = cardWhere((card) => card.color === "蓝" && card.transmis
 const blackCard = cardWhere((card) => card.color === "黑");
 const counterCard = cardWhere((card) => card.name === "识破");
 const transferCard = cardWhere((card) => card.name === "转移");
+const separationCard = cardWhere((card) => card.name === "离间");
+const redSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "红");
+const blueSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "蓝");
 const militaryDrawProbe = cardWhere(
   (card) => card.variant?.kind === "probeDrawDiscard" && card.variant.drawFaction === "军情",
 );
@@ -211,6 +214,68 @@ describe("bot strategy", () => {
       .toBe("PASS_REACTION");
     expect(chooseBotCommand(projection, createBotMemory(projection), { policy: CANDIDATE_V6 })?.type)
       .toBe("PLAY_TRANSFER");
+  });
+
+  it("uses separation only for enough incremental improvement over the pending transfer target", () => {
+    const chooseSeparation = (
+      players: PlayerProjection["players"],
+      pendingTargetId: string,
+      proposedTargetId: string,
+    ) => {
+      const projection = makeProjection({
+        phase: "transmitting",
+        players,
+        own: { id: "bot", faction: "军情", hand: [separationCard] },
+        transmission: {
+          ...transmission(blueDirectCard),
+          pendingTransfer: { sourceCard: transferCard, targetId: pendingTargetId },
+        },
+        legalActions: [
+          { type: "PASS_REACTION" },
+          {
+            type: "PLAY_SEPARATION",
+            cardId: separationCard.id as PhysicalCardId,
+            targetId: proposedTargetId,
+          },
+        ],
+      });
+      return chooseBotCommand(projection, createBotMemory(projection), { policy: TACTICAL_V2 });
+    };
+    const hiddenPlayers = makeProjection().players;
+    const revealedPlayers = hiddenPlayers.map((player) =>
+      player.id === "b"
+        ? { ...player, faction: "军情" as Faction }
+        : player.id === "c"
+          ? { ...player, faction: "潜伏" as Faction }
+          : player
+    );
+
+    expect(chooseSeparation(hiddenPlayers, "b", "c")?.type).toBe("PASS_REACTION");
+    expect(chooseSeparation(revealedPlayers, "b", "c")?.type).toBe("PASS_REACTION");
+    expect(chooseSeparation(revealedPlayers, "c", "b")?.type).toBe("PLAY_SEPARATION");
+  });
+
+  it("uses swap only when the replacement materially improves the pending intelligence", () => {
+    const players = makeProjection().players.map((player) =>
+      player.id === "b" ? { ...player, faction: "军情" as Faction } : player
+    );
+    const chooseSwap = (currentCard: PhysicalCard, replacement: PhysicalCard) => {
+      const projection = makeProjection({
+        phase: "transmitting",
+        players,
+        own: { id: "bot", faction: "军情", hand: [replacement] },
+        transmission: { ...transmission(currentCard), intendedRecipientId: "b" },
+        legalActions: [
+          { type: "PASS_REACTION" },
+          { type: "PLAY_SWAP", cardId: replacement.id as PhysicalCardId },
+        ],
+      });
+      return chooseBotCommand(projection, createBotMemory(projection), { policy: TACTICAL_V2 });
+    };
+
+    expect(chooseSwap(redDirectCard, redSwapCard)?.type).toBe("PASS_REACTION");
+    expect(chooseSwap(blueDirectCard, redSwapCard)?.type).toBe("PASS_REACTION");
+    expect(chooseSwap(redDirectCard, blueSwapCard)?.type).toBe("PLAY_SWAP");
   });
 
   it("uses a draw probe on a likely ally when its printed draw faction matches", () => {

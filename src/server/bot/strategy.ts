@@ -30,6 +30,10 @@ export const TACTICAL_V2: BotPolicy = {
 };
 export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V2;
 
+const PASS_REACTION_SCORE = 5;
+const SEPARATION_CARD_COST = 1;
+const SWAP_CARD_COST = 1;
+
 interface PublicObservation {
   auditLength: number;
   transmission?: {
@@ -411,7 +415,7 @@ function scoreAction(
     case "PLAY_LOCK":
       return decision(command, 6 + receiptUtility(projection.transmission?.card, projection.transmission?.intendedRecipientId, projection, beliefs), "secure a tactically valuable receipt");
     case "PASS_REACTION":
-      return decision(command, 5, "preserve reaction cards");
+      return decision(command, PASS_REACTION_SCORE, "preserve reaction cards");
     case "PLAY_COUNTER":
       return decision(command, 5 - pendingInteractionUtility(projection, beliefs), "counter only when the pending action is unfavorable");
     case "PLAY_DECRYPT":
@@ -419,11 +423,24 @@ function scoreAction(
     case "PLAY_INTERCEPT":
       return decision(command, 5 + receiptUtility(projection.transmission?.card, projection.own.id, projection, beliefs), "intercept tactically useful intelligence");
     case "PLAY_SWAP":
-      return decision(command, 7 + swapImprovement(card, projection, beliefs), "compare replacement and pending intelligence");
+      return decision(
+        command,
+        PASS_REACTION_SCORE + swapImprovement(card, projection, beliefs) - SWAP_CARD_COST,
+        "swap only when the replacement improves enough to justify spending the card",
+      );
     case "PLAY_TRANSFER":
-    case "PLAY_SEPARATION":
     case "PLAY_FUNCTION_SEPARATION":
       return decision(command, 7 + receiptUtility(projection.transmission?.card, action.targetId, projection, beliefs), "redirect toward the best tactical recipient");
+    case "PLAY_SEPARATION": {
+      const pendingTargetId = projection.transmission?.pendingTransfer?.targetId;
+      const improvement = receiptUtility(projection.transmission?.card, action.targetId, projection, beliefs)
+        - receiptUtility(projection.transmission?.card, pendingTargetId, projection, beliefs);
+      return decision(
+        command,
+        PASS_REACTION_SCORE + improvement - SEPARATION_CARD_COST,
+        "redirect only when the new recipient improves enough to justify spending separation",
+      );
+    }
     case "PLAY_BURN":
       return decision(
         command,

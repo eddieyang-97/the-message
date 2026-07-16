@@ -4,6 +4,7 @@
   },
   "scripts": {
     "ai:benchmark": "tsx src/ai-lab/benchmark-cli.ts",
+    "ai:campaign": "tsx src/ai-lab/campaign-cli.ts",
     "dev": "vite",
     "dev:client": "vite",
     "dev:server": "tsx watch src/server/start.ts",

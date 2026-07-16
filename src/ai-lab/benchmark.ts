@@ -47,6 +47,7 @@ export interface SelfPlayGameResult {
   lastRejection?: string;
   participants: Array<{
     id: string;
+    seat: number;
     faction: string;
     policy: string;
     won: boolean;
@@ -90,12 +91,24 @@ export interface PairedTournamentResult {
   completed: number;
   stalled: number;
   commandLimited: number;
-  candidate: { wins: number; entries: number; winRate: number };
-  baseline: { wins: number; entries: number; winRate: number };
+  candidate: PolicyPerformanceSummary;
+  baseline: PolicyPerformanceSummary;
   pairedWinRateDifference: number;
   confidence95: { low: number; high: number };
   verdict: "candidate" | "baseline" | "inconclusive";
+  pairDifferenceMoments: { count: number; sum: number; sumSquares: number };
   results: SelfPlayGameResult[];
+}
+
+export interface WinRateSummary {
+  wins: number;
+  entries: number;
+  winRate: number;
+}
+
+export interface PolicyPerformanceSummary extends WinRateSummary {
+  byFaction: Record<string, WinRateSummary>;
+  bySeat: Record<string, WinRateSummary>;
 }
 
 /** Runs one game using only player projections, the same information available to live bots. */
@@ -243,6 +256,11 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
     pairedWinRateDifference: difference,
     confidence95,
     verdict: confidence95.low > 0 ? "candidate" : confidence95.high < 0 ? "baseline" : "inconclusive",
+    pairDifferenceMoments: {
+      count: pairDifferences.length,
+      sum: pairDifferences.reduce((sum, value) => sum + value, 0),
+      sumSquares: pairDifferences.reduce((sum, value) => sum + value ** 2, 0),
+    },
     results,
   };
 }
@@ -305,6 +323,7 @@ function summarizeGame(
     lastRejection,
     participants: state.seatOrder.map((id, index) => ({
       id,
+      seat: index + 1,
       faction: state.players[id].faction,
       policy: policies[index]!.id,
       won: didPlayerWin(state.winner, id, state.players[id].faction),
@@ -364,10 +383,34 @@ function didPlayerWin(winner: WinnerState | undefined, playerId: string, faction
 function policySummary(
   participants: readonly SelfPlayGameResult["participants"][number][],
   policy: string,
-): { wins: number; entries: number; winRate: number } {
+): PolicyPerformanceSummary {
   const entries = participants.filter((participant) => participant.policy === policy);
+  return {
+    ...winRateSummary(entries),
+    byFaction: groupedWinRates(entries, (entry) => entry.faction),
+    bySeat: groupedWinRates(entries, (entry) => String(entry.seat)),
+  };
+}
+
+function winRateSummary(
+  entries: readonly SelfPlayGameResult["participants"][number][],
+): WinRateSummary {
   const wins = entries.filter((participant) => participant.won).length;
   return { wins, entries: entries.length, winRate: wins / Math.max(1, entries.length) };
+}
+
+function groupedWinRates(
+  entries: readonly SelfPlayGameResult["participants"][number][],
+  keyFor: (entry: SelfPlayGameResult["participants"][number]) => string,
+): Record<string, WinRateSummary> {
+  const groups = new Map<string, SelfPlayGameResult["participants"][number][]>();
+  for (const entry of entries) {
+    const key = keyFor(entry);
+    const group = groups.get(key) ?? [];
+    group.push(entry);
+    groups.set(key, group);
+  }
+  return Object.fromEntries([...groups].map(([key, group]) => [key, winRateSummary(group)]));
 }
 
 function winRateFor(
