@@ -55,6 +55,13 @@ export interface BotDecisionOptions {
   excludedTransmissionCardIds?: readonly PhysicalCardId[];
 }
 
+interface IntelligenceCounts {
+  red: number;
+  blue: number;
+  black: number;
+  physical: number;
+}
+
 export function createSeededBotRandom(seed: number): BotRandom {
   let state = seed >>> 0 || 0x6d2b79f5;
   return () => {
@@ -233,31 +240,31 @@ function scoreAction(
   const card = "cardId" in action ? projection.own.hand.find((item) => item.id === action.cardId) : undefined;
   switch (action.type) {
     case "ACCEPT_INTELLIGENCE":
-      return decision(command, intelligenceValue(projection.transmission?.card, ownFaction, ownBlackCount(projection)), "evaluate intelligence receipt");
+      return decision(command, 5 + receiptUtility(projection.transmission?.card, projection.own.id, projection, beliefs), "evaluate tactical receipt outcome");
     case "DECLINE_INTELLIGENCE":
-      return decision(command, 2, "avoid an unhelpful or unknown receipt");
+      return decision(command, 5, "preserve the current board state");
     case "ENTER_TRANSMISSION_PHASE":
       return decision(command, 10, "finish function-card phase");
     case "PASS_LOCK":
       return decision(command, 4, "preserve lock card");
     case "PLAY_LOCK":
-      return decision(command, Math.max(3, intelligenceValue(projection.transmission?.card, ownFaction, ownBlackCount(projection)) + 12), "secure valuable transmission");
+      return decision(command, 6 + receiptUtility(projection.transmission?.card, projection.transmission?.intendedRecipientId, projection, beliefs), "secure a tactically valuable receipt");
     case "PASS_REACTION":
       return decision(command, 5, "preserve reaction cards");
     case "PLAY_COUNTER":
-      return decision(command, 18, "counter a hostile card action");
+      return decision(command, 5 - pendingInteractionUtility(projection, beliefs), "counter only when the pending action is unfavorable");
     case "PLAY_DECRYPT":
       return decision(command, projection.transmission?.card ? 4 : 14, "learn hidden intelligence");
     case "PLAY_INTERCEPT":
-      return decision(command, intelligenceValue(projection.transmission?.card, ownFaction, ownBlackCount(projection)) + 5, "intercept useful intelligence");
+      return decision(command, 5 + receiptUtility(projection.transmission?.card, projection.own.id, projection, beliefs), "intercept tactically useful intelligence");
     case "PLAY_SWAP":
-      return decision(command, projection.transmission?.card && intelligenceValue(projection.transmission.card, ownFaction, ownBlackCount(projection)) < 0 ? 16 : 7, "replace dangerous intelligence");
+      return decision(command, 7 + swapImprovement(card, projection, beliefs), "compare replacement and pending intelligence");
     case "PLAY_TRANSFER":
     case "PLAY_SEPARATION":
     case "PLAY_FUNCTION_SEPARATION":
-      return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 8 + 8, "redirect toward a likely ally");
+      return decision(command, 7 + receiptUtility(projection.transmission?.card, action.targetId, projection, beliefs), "redirect toward the best tactical recipient");
     case "PLAY_BURN":
-      return decision(command, targetAffinity(action.targetPlayerId, ownFaction, beliefs) * 12 + 8, "remove lethal black intelligence from a likely ally");
+      return decision(command, 7 + burnUtility(action.targetPlayerId, projection, beliefs), "remove dangerous black intelligence when it helps the bot's side");
     case "PLAY_PUBLIC_TEXT":
       return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 5 + 8, "exchange with a likely ally");
     case "PLAY_DANGEROUS_INTELLIGENCE":
@@ -320,7 +327,7 @@ function synthesizeTransmission(
           const helpful = transmissionCardValue(card, projection.own.faction);
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, targetId: target.id },
-            score: helpful * targetAffinity(target.id, projection.own.faction, beliefs) + cardUtility(card, projection.own.faction) * -0.15,
+            score: receiptUtility(card, target.id, projection, beliefs) + helpful * 0.1 - cardUtility(card, projection.own.faction) * 0.15,
           });
         }
       } else {
@@ -331,7 +338,7 @@ function synthesizeTransmission(
           const recipient = adjacentLivingPlayer(projection, direction);
           candidates.push({
             command: { type: "START_TRANSMISSION", cardId: card.id as PhysicalCardId, method, direction },
-            score: transmissionCardValue(card, projection.own.faction) * targetAffinity(recipient, projection.own.faction, beliefs) - cardUtility(card, projection.own.faction) * 0.15,
+            score: receiptUtility(card, recipient, projection, beliefs) - cardUtility(card, projection.own.faction) * 0.15,
           });
         }
       }
@@ -352,6 +359,179 @@ function intelligenceValue(card: PhysicalCard | undefined, faction: Faction, bla
   if (faction === "特工") return 15;
   const desired = faction === "军情" ? "蓝" : "红";
   return card.color === desired || card.color === "红蓝" ? 38 : -8;
+}
+
+/** Utility of adding a visible intelligence card to a recipient, from this bot's perspective. */
+export function receiptUtility(
+  card: PhysicalCard | undefined,
+  recipientId: string | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (!card || !recipientId) return 0;
+  const recipient = projection.players.find((player) => player.id === recipientId);
+  if (!recipient) return 0;
+  const before = countIntelligence(recipient.intelligence);
+  const after = addIntelligence(before, card);
+  const probabilities = recipientId === projection.own.id
+    ? oneHot(projection.own.faction)
+    : beliefs[recipientId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  return FACTIONS.reduce((total, faction) => total + probabilities[faction] * (
+    playerBoardUtility(after, faction, recipientId, projection.own.id, projection.own.faction)
+    - playerBoardUtility(before, faction, recipientId, projection.own.id, projection.own.faction)
+  ), 0);
+}
+
+/** A public-board score useful for benchmarks and future shallow search. */
+export function evaluatePublicPosition(
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  if (projection.winner) {
+    if (projection.winner.kind === "agent") return projection.winner.playerId === projection.own.id ? 10_000 : -10_000;
+    return projection.winner.faction === projection.own.faction ? 10_000 : -10_000;
+  }
+  return projection.players.reduce((total, player) => {
+    const probabilities = player.id === projection.own.id
+      ? oneHot(projection.own.faction)
+      : beliefs[player.id] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+    const counts = countIntelligence(player.intelligence);
+    return total + FACTIONS.reduce((value, faction) => value + probabilities[faction]
+      * playerBoardUtility(counts, faction, player.id, projection.own.id, projection.own.faction), 0);
+  }, projection.own.hand.reduce((total, heldCard) => total + cardUtility(heldCard, projection.own.faction) * 0.15, 0));
+}
+
+function swapImprovement(
+  replacement: PhysicalCard | undefined,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const recipient = projection.transmission?.intendedRecipientId;
+  return receiptUtility(replacement, recipient, projection, beliefs)
+    - receiptUtility(projection.transmission?.card, recipient, projection, beliefs);
+}
+
+function burnUtility(
+  targetId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const target = projection.players.find((player) => player.id === targetId);
+  if (!target) return 0;
+  const before = countIntelligence(target.intelligence);
+  const after = { ...before, black: Math.max(0, before.black - 1), physical: Math.max(0, before.physical - 1) };
+  const probabilities = targetId === projection.own.id
+    ? oneHot(projection.own.faction)
+    : beliefs[targetId] ?? { 军情: 1 / 3, 潜伏: 1 / 3, 特工: 1 / 3 };
+  return FACTIONS.reduce((total, faction) => total + probabilities[faction] * (
+    playerBoardUtility(after, faction, targetId, projection.own.id, projection.own.faction)
+    - playerBoardUtility(before, faction, targetId, projection.own.id, projection.own.faction)
+  ), 0);
+}
+
+function pendingInteractionUtility(
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const frames = projection.responseStack;
+  if (frames.length === 0) return 0;
+  const values = new Map<string, number>();
+  for (const frame of frames) {
+    let value: number;
+    if (frame.kind === "counter") {
+      value = -(frame.targetInteractionId ? values.get(frame.targetInteractionId) ?? 0 : 0);
+    } else if (frame.kind === "intelligence") {
+      value = receiptUtility(projection.transmission?.card, frame.targetPlayerId, projection, beliefs);
+    } else {
+      value = cardActionUtility(frame.cardName, frame.sourcePlayerId, frame.targetPlayerId, projection, beliefs);
+    }
+    values.set(frame.id, value);
+  }
+  return values.get(frames.at(-1)!.id) ?? 0;
+}
+
+function cardActionUtility(
+  name: PhysicalCard["name"] | undefined,
+  sourceId: string | undefined,
+  targetId: string,
+  projection: PlayerProjection,
+  beliefs: Record<string, FactionBelief>,
+): number {
+  const affinity = targetAffinity(targetId, projection.own.faction, beliefs);
+  switch (name) {
+    case "危险情报":
+    case "试探":
+    case "秘密下达":
+      return -10 * affinity;
+    case "增援":
+    case "机密文件":
+    case "公开文本":
+    case "破译":
+      return 10 * targetAffinity(sourceId ?? targetId, projection.own.faction, beliefs);
+    case "烧毁":
+      return burnUtility(targetId, projection, beliefs);
+    case "锁定":
+      return receiptUtility(projection.transmission?.card, targetId, projection, beliefs);
+    case "调虎离山":
+      return -receiptUtility(projection.transmission?.card, targetId, projection, beliefs);
+    case "转移":
+    case "离间":
+      return receiptUtility(projection.transmission?.card, targetId, projection, beliefs);
+    case "截获":
+      return receiptUtility(projection.transmission?.card, sourceId, projection, beliefs);
+    case "掉包": {
+      const replacement = sourceId === projection.own.id
+        ? projection.own.hand.find((held) => held.name === "掉包")
+        : undefined;
+      return receiptUtility(replacement, targetId, projection, beliefs)
+        - receiptUtility(projection.transmission?.card, targetId, projection, beliefs);
+    }
+    default:
+      return 0;
+  }
+}
+
+function playerBoardUtility(
+  counts: IntelligenceCounts,
+  playerFaction: Faction,
+  playerId: string,
+  botId: string,
+  botFaction: Faction,
+): number {
+  const isBot = playerId === botId;
+  const aligned = botFaction !== "特工" && playerFaction === botFaction;
+  const sign = isBot || aligned ? 1 : -1;
+  if (counts.black >= 3) return isBot ? -10_000 : aligned ? -1_200 : 900;
+  if (playerFaction === "特工" && counts.physical >= 6) return isBot ? 10_000 : -10_000;
+  const desired = playerFaction === "军情" ? counts.blue : playerFaction === "潜伏" ? counts.red : counts.physical;
+  if (playerFaction !== "特工" && desired >= 3) return sign * 10_000;
+  const progress = playerFaction === "特工" ? desired * 16 : desired * 32;
+  const blackRisk = counts.black === 2 ? 90 : counts.black * 15;
+  return sign * (progress - blackRisk);
+}
+
+function countIntelligence(cards: readonly PhysicalCard[]): IntelligenceCounts {
+  return cards.reduce<IntelligenceCounts>((counts, card) => {
+    counts.physical += 1;
+    if (card.color === "红" || card.color === "红蓝") counts.red += 1;
+    if (card.color === "蓝" || card.color === "红蓝") counts.blue += 1;
+    if (card.color === "黑") counts.black += 1;
+    return counts;
+  }, { red: 0, blue: 0, black: 0, physical: 0 });
+}
+
+function addIntelligence(counts: IntelligenceCounts, card: PhysicalCard): IntelligenceCounts {
+  return countIntelligenceFromBase(counts, [card]);
+}
+
+function countIntelligenceFromBase(base: IntelligenceCounts, cards: readonly PhysicalCard[]): IntelligenceCounts {
+  const added = countIntelligence(cards);
+  return {
+    red: base.red + added.red,
+    blue: base.blue + added.blue,
+    black: base.black + added.black,
+    physical: base.physical + added.physical,
+  };
 }
 
 function transmissionCardValue(card: PhysicalCard, faction: Faction): number {

@@ -3,6 +3,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "ai:benchmark": "tsx src/server/bot-benchmark-cli.ts",
     "dev": "vite",
     "dev:client": "vite",
     "dev:server": "tsx watch src/server/start.ts",

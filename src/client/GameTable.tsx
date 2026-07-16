@@ -104,14 +104,77 @@ function ResponsePanel({
   playerDisplayNames: Readonly<Record<string, string>>;
   reactionTimer?: ReactionTimerSnapshot | null;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const drag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  } | undefined>(undefined);
   const stack = projection.responseStack;
   const current = stack.at(-1);
   if (!projection.reactionWindow || !current) return null;
   const currentResponder = projection.reactionWindow.currentResponderId;
+
+  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !panelRef.current) return;
+    const rect = panelRef.current.getBoundingClientRect();
+    const margin = 8;
+    drag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: offset.x,
+      originY: offset.y,
+      minX: offset.x + margin - rect.left,
+      maxX: offset.x + window.innerWidth - margin - rect.right,
+      minY: offset.y + margin - rect.top,
+      maxY: offset.y + window.innerHeight - margin - rect.bottom,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const moveDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const active = drag.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    setOffset({
+      x: Math.min(active.maxX, Math.max(active.minX, active.originX + event.clientX - active.startX)),
+      y: Math.min(active.maxY, Math.max(active.minY, active.originY + event.clientY - active.startY)),
+    });
+  };
+
+  const stopDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = undefined;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
   return (
-    <section className="response-panel" aria-label="当前响应">
-      <div className="response-panel__heading">
-        <span>当前响应</span>
+    <section
+      className="response-panel"
+      aria-label="当前响应"
+      ref={panelRef}
+      style={{ "--response-offset-x": `${offset.x}px`, "--response-offset-y": `${offset.y}px` } as React.CSSProperties}
+    >
+      <div
+        className="response-panel__heading"
+        onDoubleClick={() => setOffset({ x: 0, y: 0 })}
+        onPointerCancel={stopDrag}
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={stopDrag}
+        title="拖动调整位置；双击复位"
+      >
+        <span>当前响应 <i aria-hidden="true">⠿</i></span>
         {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
       </div>
       <strong className="response-panel__action">
@@ -382,6 +445,7 @@ export function GameTable({
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
   const [discardPileOpen, setDiscardPileOpen] = useState(false);
+  const [privateNoticesCollapsed, setPrivateNoticesCollapsed] = useState(false);
   const actions = projection.legalActions;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
@@ -636,22 +700,33 @@ export function GameTable({
           </section>
 
           {projection.privateNotices.length > 0 && (
-            <section className="private-notices" aria-label="私人通知">
-              <h3>私人通知</h3>
-              {projection.privateNotices.map((notice, index) => (
-                <div className="private-notice" key={`${notice.kind}-${notice.card.id}-${index}`}>
-                  <p>
-                    {notice.kind === "publicTextGained"
-                      ? `你从【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】手中取得了这张牌：`
-                      : notice.kind === "publicTextLost"
-                        ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过公开文本从你手中取得了这张牌：`
-                        : notice.kind === "probePlayed"
-                          ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的试探详情：`
-                          : `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`}
-                  </p>
-                  <CardView card={notice.card} />
-                </div>
-              ))}
+            <section className={`private-notices${privateNoticesCollapsed ? " private-notices--collapsed" : ""}`} aria-label="私人通知">
+              <header>
+                <h3>私人通知 <small>{projection.privateNotices.length}</small></h3>
+                <button
+                  aria-expanded={!privateNoticesCollapsed}
+                  onClick={() => setPrivateNoticesCollapsed((collapsed) => !collapsed)}
+                  type="button"
+                >
+                  {privateNoticesCollapsed ? "展开" : "收起"}
+                </button>
+              </header>
+              {!privateNoticesCollapsed && projection.privateNotices.map((notice, index) => (
+                  <div className="private-notice" key={`${notice.kind}-${notice.card.id}-${index}`}>
+                    <p>
+                      {notice.kind === "publicTextGained"
+                        ? `你从【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】手中取得了这张牌：`
+                        : notice.kind === "publicTextLost"
+                          ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过公开文本从你手中取得了这张牌：`
+                        : notice.kind === "dangerousDiscardLost"
+                          ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过危险情报从你手中弃置了这张牌：`
+                          : notice.kind === "probePlayed"
+                            ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的试探详情：`
+                            : `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`}
+                    </p>
+                    <CardView card={notice.card} />
+                  </div>
+                ))}
             </section>
           )}
 

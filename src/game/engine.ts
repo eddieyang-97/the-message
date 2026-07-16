@@ -258,6 +258,7 @@ export interface PrivateCardNotice {
   kind:
     | "publicTextGained"
     | "publicTextLost"
+    | "dangerousDiscardLost"
     | "probePlayed"
     | "secretOrderPlayed";
   otherPlayerId: PlayerId;
@@ -1935,7 +1936,14 @@ function finishActiveFunctionAction(state: GameState): void {
       const [discarded] = target.hand.splice(0, 1);
       if (!discarded) throw new Error("危险情报自动弃牌失败");
       state.publicDiscard.push(discarded);
-      state.auditLog.push(`${source.id}通过危险情报自动弃置${target.id}唯一的手牌`);
+      state.privateNotices[target.id].push({
+        kind: "dangerousDiscardLost",
+        otherPlayerId: source.id,
+        cardId: discarded,
+      });
+      state.auditLog.push(
+        `${source.id}通过危险情报自动弃置${target.id}唯一的手牌：${describeDiscardedCard(discarded)}`,
+      );
     } else {
       action.stage = "awaitingDiscard";
       state.auditLog.push(`${source.id}私下查看${target.id}的手牌`);
@@ -2051,10 +2059,22 @@ export function chooseDangerousIntelligenceDiscard(
   if (cardIndex < 0) throw new Error("只能选择目标当前手中的牌");
   target.hand.splice(cardIndex, 1);
   state.publicDiscard.push(cardId);
-  state.auditLog.push(`${actorId}通过危险情报弃置${target.id}的一张牌`);
+  state.privateNotices[target.id].push({
+    kind: "dangerousDiscardLost",
+    otherPlayerId: actorId,
+    cardId,
+  });
+  state.auditLog.push(
+    `${actorId}通过危险情报弃置${target.id}的一张牌：${describeDiscardedCard(cardId)}`,
+  );
   state.activeFunctionAction = undefined;
   state.activeFunctionStack = [];
   assertGameStateInvariants(state);
+}
+
+function describeDiscardedCard(cardId: PhysicalCardId): string {
+  const card = cardById(cardId);
+  return `「${card.name}（${card.color} · ${card.transmission}）」`;
 }
 
 export function discardForHandLimit(

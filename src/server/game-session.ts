@@ -140,6 +140,7 @@ export class GameSessionService {
     if (!state.players[actorId]) {
       throw new GameSessionError("NOT_A_GAME_PLAYER", "当前玩家不属于这局游戏");
     }
+    const checkpoint = structuredClone(state);
     const previousNotices = state.privateNotices[actorId];
     state.privateNotices[actorId] = previousNotices.filter(
       (notice) =>
@@ -148,11 +149,18 @@ export class GameSessionService {
     try {
       dispatchGameCommand(state, actorId, command);
     } catch (error) {
-      state.privateNotices[actorId] = previousNotices;
+      restoreGameState(state, checkpoint);
       throw error;
     }
     return projectGameForPlayer(state, actorId);
   }
+}
+
+function restoreGameState(target: GameState, checkpoint: GameState): void {
+  for (const key of Object.keys(target) as Array<keyof GameState>) {
+    delete target[key];
+  }
+  Object.assign(target, checkpoint);
 }
 
 export class GameSessionError extends Error {

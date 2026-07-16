@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PHYSICAL_DECK, type Faction, type PhysicalCard } from "../game/cards";
+import { PHYSICAL_DECK, type Faction, type PhysicalCard, type PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import {
   chooseBotCommand,
@@ -7,12 +7,14 @@ import {
   createSeededBotRandom,
   factionBeliefs,
   observeBotProjection,
+  receiptUtility,
 } from "./bot-strategy";
 
 const blueCard = cardWhere((card) => card.color === "蓝");
 const redDirectCard = cardWhere((card) => card.color === "红" && card.transmission === "直达");
 const blueDirectCard = cardWhere((card) => card.color === "蓝" && card.transmission === "直达");
 const blackCard = cardWhere((card) => card.color === "黑");
+const counterCard = cardWhere((card) => card.name === "识破");
 
 describe("bot strategy", () => {
   it("selects only a supplied legal action during normal prompts", () => {
@@ -98,7 +100,57 @@ describe("bot strategy", () => {
     expect(chooseBotCommand(lethal, createBotMemory(lethal))?.type).toBe("DECLINE_INTELLIGENCE");
   });
 
-  it("synthesizes START_TRANSMISSION and targets a likely opponent with harmful intelligence", () => {
+  it("assigns decisive tactical value to an immediate team win", () => {
+    const projection = makeProjection({
+      phase: "transmitting",
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blueCard, { ...blueCard, id: "second-blue" }] }
+          : player
+      ),
+      transmission: transmission(blueCard),
+      legalActions: [{ type: "ACCEPT_INTELLIGENCE" }, { type: "DECLINE_INTELLIGENCE" }],
+    });
+    const memory = createBotMemory(projection);
+    expect(receiptUtility(blueCard, "bot", projection, factionBeliefs(memory, projection))).toBeGreaterThan(9_000);
+    expect(chooseBotCommand(projection, memory)?.type).toBe("ACCEPT_INTELLIGENCE");
+  });
+
+  it("counters hostile actions but preserves 识破 when the pending action helps", () => {
+    const hostile = makeProjection({
+      own: { id: "bot", faction: "军情", hand: [counterCard] },
+      responseStack: [{
+        id: "danger",
+        kind: "card",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        cardName: "危险情报",
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" },
+        { type: "PLAY_COUNTER", cardId: counterCard.id as PhysicalCardId, targetInteractionId: "danger" },
+      ],
+    });
+    expect(chooseBotCommand(hostile, createBotMemory(hostile))?.type).toBe("PLAY_COUNTER");
+
+    const helpful: PlayerProjection = {
+      ...hostile,
+      responseStack: [{
+        id: "support",
+        kind: "card" as const,
+        sourcePlayerId: "bot",
+        targetPlayerId: "bot",
+        cardName: "增援" as const,
+      }],
+      legalActions: [
+        { type: "PASS_REACTION" as const },
+        { type: "PLAY_COUNTER" as const, cardId: counterCard.id as PhysicalCardId, targetInteractionId: "support" },
+      ],
+    };
+    expect(chooseBotCommand(helpful, createBotMemory(helpful))?.type).toBe("PASS_REACTION");
+  });
+
+  it("does not hand matching intelligence to a likely opposing faction", () => {
     const projection = makeProjection({
       phase: "preTransmission",
       own: { id: "bot", faction: "军情", hand: [redDirectCard] },
@@ -111,7 +163,28 @@ describe("bot strategy", () => {
       type: "START_TRANSMISSION",
       cardId: redDirectCard.id,
       method: "直达",
-      targetId: "c",
+      targetId: "b",
+    });
+  });
+
+  it("prioritizes its own immediate team win over giving an opponent theirs", () => {
+    const projection = makeProjection({
+      phase: "preTransmission",
+      own: { id: "bot", faction: "军情", hand: [blueDirectCard, redDirectCard] },
+      players: makeProjection().players.map((player) => {
+        if (player.id === "b") return { ...player, intelligence: [blueCard, { ...blueCard, id: "ally-blue-2" }] };
+        if (player.id === "c") return { ...player, intelligence: [redDirectCard, { ...redDirectCard, id: "enemy-red-2" }] };
+        return player;
+      }),
+      legalActions: [],
+    });
+    const memory = createBotMemory(projection);
+    memory.evidence.b = { 军情: 8, 潜伏: -8, 特工: -8 };
+    memory.evidence.c = { 军情: -8, 潜伏: 8, 特工: -8 };
+    expect(chooseBotCommand(projection, memory)).toMatchObject({
+      type: "START_TRANSMISSION",
+      cardId: blueDirectCard.id,
+      targetId: "b",
     });
   });
 
