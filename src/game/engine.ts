@@ -260,7 +260,8 @@ export interface PrivateCardNotice {
     | "publicTextLost"
     | "dangerousDiscardLost"
     | "probePlayed"
-    | "secretOrderPlayed";
+    | "secretOrderPlayed"
+    | "secretOrderReceived";
   otherPlayerId: PlayerId;
   cardId: PhysicalCardId;
 }
@@ -341,6 +342,7 @@ export interface PlayerProjection {
     sourcePlayerId?: PlayerId;
     word?: SecretOrderWord;
     requiredColor?: SingleColor;
+    verifiedNoMatch: boolean;
     inspectedHand?: PhysicalCard[];
   };
   legalActions: Array<
@@ -1575,6 +1577,11 @@ export function playSecretOrder(
     otherPlayerId: state.activePlayerId,
     cardId,
   });
+  state.privateNotices[state.activePlayerId].push({
+    kind: "secretOrderReceived",
+    otherPlayerId: actorId,
+    cardId,
+  });
   pending.stage = "reactions";
   pending.sourcePlayerId = actorId;
   pending.sourceCardId = cardId;
@@ -2704,11 +2711,11 @@ export function playTransfer(
   if (state.phase !== "transmitting" || !transmission) {
     throw new Error("当前没有可转移的情报");
   }
-  if (
-    actorId !== transmission.intendedRecipientId ||
-    transmission.locked
-  ) {
+  if (actorId !== transmission.intendedRecipientId || transmission.locked) {
     throw new Error("只有未被锁定情报的当前接收者可以使用转移");
+  }
+  if (transmission.interceptorCommitted) {
+    throw new Error("截获者已承诺接收情报，不能使用转移");
   }
   if (
     state.reactionWindow?.kind !== "intelligence" ||
@@ -3392,6 +3399,7 @@ export function projectGameForPlayer(
     !transmission.pendingTransfer &&
     transmission.intendedRecipientId === viewerId &&
     !transmission.locked &&
+    !transmission.interceptorCommitted &&
     state.reactionWindow?.kind === "intelligence" &&
     currentReactionResponderId === viewerId
       ? viewer.hand
@@ -3738,9 +3746,12 @@ export function projectGameForPlayer(
           sourcePlayerId: state.pendingSecretOrder.sourcePlayerId,
           word: state.pendingSecretOrder.word,
           requiredColor:
-            state.pendingSecretOrder.sourcePlayerId === viewerId
+            !state.pendingSecretOrder.countered &&
+            (state.pendingSecretOrder.sourcePlayerId === viewerId ||
+              state.pendingSecretOrder.targetPlayerId === viewerId)
               ? state.pendingSecretOrder.requiredColor
               : undefined,
+          verifiedNoMatch: state.pendingSecretOrder.verifiedNoMatch,
           inspectedHand:
             state.pendingSecretOrder.verifiedNoMatch &&
             state.pendingSecretOrder.sourcePlayerId === viewerId

@@ -144,6 +144,41 @@ describe("lobby bots", () => {
     expect(first.players.find((player) => player.id === host.playerId)?.isBot).toBe(false);
   });
 
+  it("fills every empty seat with a uniquely named bot while preserving occupied seats", () => {
+    const service = createService();
+    const host = service.createRoom(5, "host");
+    const guest = service.joinRoom(host.room.code, "guest");
+    service.requestSeat(host.room.code, guest.playerId, 3);
+
+    const filled = service.fillEmptySeatsWithBots(host.room.code, host.playerId);
+
+    expect(filled.players).toHaveLength(5);
+    expect(filled.players.find((player) => player.id === host.playerId)?.seatIndex).toBe(0);
+    expect(filled.players.find((player) => player.id === guest.playerId)?.seatIndex).toBe(3);
+    expect(filled.players.filter((player) => player.isBot).map((player) => player.seatIndex))
+      .toEqual([1, 2, 4]);
+    expect(filled.players.filter((player) => player.isBot).map((player) => player.displayName))
+      .toEqual(["机器人 1", "机器人 2", "机器人 3"]);
+  });
+
+  it("allows only the host to fill bots and is a no-op when the lobby is full", () => {
+    const service = createService();
+    const host = service.createRoom(2, "host");
+    const guest = service.joinRoom(host.room.code, "guest");
+
+    expectRoomError(
+      () => service.fillEmptySeatsWithBots(host.room.code, guest.playerId),
+      "NOT_HOST",
+    );
+    expect(service.fillEmptySeatsWithBots(host.room.code, host.playerId).players)
+      .toHaveLength(2);
+    service.startRoom(host.room.code, host.playerId, "as-is");
+    expectRoomError(
+      () => service.fillEmptySeatsWithBots(host.room.code, host.playerId),
+      "ROOM_ALREADY_STARTED",
+    );
+  });
+
   it("requires the host, an empty valid seat, capacity, and lobby phase", () => {
     const service = createService();
     const host = service.createRoom(2, "host");

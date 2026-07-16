@@ -796,6 +796,30 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     expect(state.players["丙"].intelligence).toContain(intelligence);
   });
 
+  it("截获者已承诺接收，不能再使用转移", () => {
+    const state = initializedWithActive(players, 740);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const intercept = cardIdWhere((card) => card.name === "截获", [intelligence]);
+    const transfer = cardIdWhere((card) => card.name === "转移", [intelligence, intercept]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "丙", intercept, 0);
+    putCardInHand(state, "丙", transfer, 1);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    playIntercept(state, "丙", intercept);
+    passUntilReactionTurn(state, "丙");
+
+    expect(projectGameForPlayer(state, "丙").legalActions).not.toContainEqual({
+      type: "PLAY_TRANSFER",
+      cardId: transfer,
+      targetId: "丁",
+    });
+    expect(() => playTransfer(state, "丙", transfer, "丁")).toThrow(
+      "截获者已承诺接收情报，不能使用转移",
+    );
+  });
+
   it("截获后仍可掉包，替换情报由最终截获者强制接收", () => {
     const state = initializedWithActive(players, 741);
     const intelligence = cardIdWhere((card) => card.transmission === "直达");

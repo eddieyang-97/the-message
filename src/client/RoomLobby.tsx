@@ -29,6 +29,7 @@ export interface RoomLobbyProps {
   onRespondToSwap: (requestId: string, accept: boolean) => void;
   onRemovePlayer: (playerId: string) => void;
   onAddBot: (seat: number) => void;
+  onFillEmptySeatsWithBots: () => void;
   onRemoveBot: (playerId: string) => void;
   onLeaveRoom: () => void;
   onReactionTimeoutChange: (seconds: ReactionTimeoutSeconds) => void;
@@ -167,6 +168,7 @@ export function RoomLobby({
   onRespondToSwap,
   onRemovePlayer,
   onAddBot,
+  onFillEmptySeatsWithBots,
   onRemoveBot,
   onLeaveRoom,
   onReactionTimeoutChange,
@@ -310,6 +312,16 @@ export function RoomLobby({
           <div className="panel host-panel start-panel">
             <p className="eyebrow">房主操作</p>
             <h2>开始游戏</h2>
+            {players.length < capacity && (
+              <button
+                className="button button--secondary button--wide"
+                disabled={isBusy}
+                onClick={onFillEmptySeatsWithBots}
+                type="button"
+              >
+                用 AI 填满空位
+              </button>
+            )}
             {startDisabledReason && (
               <p className="start-reason" role="status">{startDisabledReason}</p>
             )}

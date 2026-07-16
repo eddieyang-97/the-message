@@ -1,5 +1,5 @@
 import { factionsForPlayerCount, type WinnerState } from "../game/engine";
-import { chooseBotCommand, createBotMemory, createSeededBotRandom, type BotMemory, type BotPolicyId } from "./bot-strategy";
+import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, type BotDecision, type BotMemory, type BotPolicyId, type FactionBelief } from "./bot-strategy";
 import { GameSessionService, type GameCommand } from "./game-session";
 
 export interface SelfPlayGameOptions {
@@ -7,6 +7,28 @@ export interface SelfPlayGameOptions {
   seed: number;
   maxCommands?: number;
   policies?: readonly BotPolicyId[];
+  comparePolicies?: readonly [BotPolicyId, BotPolicyId];
+}
+
+export interface BotDisagreement {
+  seed: number;
+  commandNumber: number;
+  actorId: string;
+  faction: string;
+  phase: string;
+  reactionKind?: string;
+  transmission?: {
+    method: string;
+    recipientId: string;
+    faceUp: boolean;
+    cardColor?: string;
+  };
+  intelligenceCounts: Record<string, { red: number; blue: number; black: number; physical: number }>;
+  legalActionTypes: string[];
+  policies: readonly [BotPolicyId, BotPolicyId];
+  decisions: readonly [BotDecision | undefined, BotDecision | undefined];
+  beliefs: readonly [Record<string, FactionBelief>, Record<string, FactionBelief>];
+  publicEvent?: string;
 }
 
 export interface SelfPlayGameResult {
@@ -28,6 +50,7 @@ export interface SelfPlayGameResult {
     policy: BotPolicyId;
     won: boolean;
   }>;
+  disagreements: BotDisagreement[];
 }
 
 export interface SelfPlayBenchmarkOptions {
@@ -55,6 +78,8 @@ export interface PairedTournamentOptions {
   pairs: number;
   startSeed?: number;
   maxCommandsPerGame?: number;
+  candidatePolicy?: BotPolicyId;
+  baselinePolicy?: BotPolicyId;
 }
 
 export interface PairedTournamentResult {
@@ -89,6 +114,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
   let commands = 0;
   let rejectedCommands = 0;
   let lastRejection: string | undefined;
+  const disagreements: BotDisagreement[] = [];
 
   while (!games.getState(roomCode).winner && commands < maxCommands) {
     let advanced = false;
@@ -99,6 +125,30 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
       memories.set(id, memory);
       const stateKey = decisionStateKey(id, projection);
       const rejected = rejectedByState.get(stateKey) ?? [];
+      if (options.comparePolicies) {
+        const decisions = options.comparePolicies.map((policy) => chooseBotDecision(
+          projection,
+          structuredClone(memory),
+          {
+            policy,
+            random: () => 0,
+            excludedCommands: rejected,
+            excludedTransmissionCardIds: rejected
+              .filter((item): item is Extract<GameCommand, { type: "START_TRANSMISSION" }> => item.type === "START_TRANSMISSION")
+              .map((item) => item.cardId),
+          },
+        )) as [BotDecision | undefined, BotDecision | undefined];
+        if (JSON.stringify(decisions[0]?.command) !== JSON.stringify(decisions[1]?.command)) {
+          disagreements.push(describeDisagreement(
+            options.seed,
+            commands,
+            projection,
+            options.comparePolicies,
+            decisions,
+            memory,
+          ));
+        }
+      }
       const command = chooseBotCommand(projection, memory, {
         policy: policies[index],
         random: randoms.get(id),
@@ -122,7 +172,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
       }
     }
     if (!advanced && !attempted) {
-      return summarizeGame(games, roomCode, options, policies, commands, rejectedCommands, "stalled", lastRejection);
+      return summarizeGame(games, roomCode, options, policies, commands, rejectedCommands, "stalled", disagreements, lastRejection);
     }
   }
 
@@ -134,6 +184,7 @@ export function runSelfPlayGame(options: SelfPlayGameOptions): SelfPlayGameResul
     commands,
     rejectedCommands,
     games.getState(roomCode).winner ? "completed" : "commandLimit",
+    disagreements,
     lastRejection,
   );
 }
@@ -142,10 +193,12 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
   if (!Number.isInteger(options.pairs) || options.pairs < 1) throw new Error("pairs must be a positive integer");
   factionsForPlayerCount(options.playerCount);
   const firstLeg = Array.from({ length: options.playerCount }, (_, index): BotPolicyId =>
-    index % 2 === 0 ? "candidate-v3" : "tactical-v2"
+    index % 2 === 0 ? (options.candidatePolicy ?? "candidate-v4") : (options.baselinePolicy ?? "tactical-v2")
   );
+  const candidatePolicy = options.candidatePolicy ?? "candidate-v4";
+  const baselinePolicy = options.baselinePolicy ?? "tactical-v2";
   const secondLeg = firstLeg.map((policy): BotPolicyId =>
-    policy === "candidate-v3" ? "tactical-v2" : "candidate-v3"
+    policy === candidatePolicy ? baselinePolicy : candidatePolicy
   );
   const startSeed = options.startSeed ?? 1;
   const results: SelfPlayGameResult[] = [];
@@ -162,13 +215,13 @@ export function runPairedTournament(options: PairedTournamentOptions): PairedTou
     results.push(...pair);
     const participants = pair.flatMap((result) => result.participants);
     pairDifferences.push(
-      winRateFor(participants, "candidate-v3") - winRateFor(participants, "tactical-v2"),
+      winRateFor(participants, candidatePolicy) - winRateFor(participants, baselinePolicy),
     );
   }
 
   const participants = results.flatMap((result) => result.participants);
-  const candidate = policySummary(participants, "candidate-v3");
-  const baseline = policySummary(participants, "tactical-v2");
+  const candidate = policySummary(participants, candidatePolicy);
+  const baseline = policySummary(participants, baselinePolicy);
   const difference = average(pairDifferences);
   const standardError = pairDifferences.length > 1
     ? Math.sqrt(pairDifferences.reduce((sum, value) => sum + (value - difference) ** 2, 0) / (pairDifferences.length - 1)) / Math.sqrt(pairDifferences.length)
@@ -230,6 +283,7 @@ function summarizeGame(
   commands: number,
   rejectedCommands: number,
   status: SelfPlayGameResult["status"],
+  disagreements: BotDisagreement[],
   lastRejection?: string,
 ): SelfPlayGameResult {
   const state = games.getState(roomCode);
@@ -254,6 +308,50 @@ function summarizeGame(
       policy: policies[index]!,
       won: didPlayerWin(state.winner, id, state.players[id].faction),
     })),
+    disagreements,
+  };
+}
+
+function describeDisagreement(
+  seed: number,
+  commandNumber: number,
+  projection: ReturnType<GameSessionService["project"]>,
+  policies: readonly [BotPolicyId, BotPolicyId],
+  decisions: readonly [BotDecision | undefined, BotDecision | undefined],
+  memory: BotMemory,
+): BotDisagreement {
+  return {
+    seed,
+    commandNumber,
+    actorId: projection.own.id,
+    faction: projection.own.faction,
+    phase: projection.phase,
+    reactionKind: projection.reactionWindow?.kind,
+    transmission: projection.transmission
+      ? {
+          method: projection.transmission.method,
+          recipientId: projection.transmission.intendedRecipientId,
+          faceUp: projection.transmission.faceUp,
+          cardColor: projection.transmission.card?.color,
+        }
+      : undefined,
+    intelligenceCounts: Object.fromEntries(projection.players.map((player) => {
+      const counts = { red: 0, blue: 0, black: 0, physical: player.intelligence.length };
+      for (const card of player.intelligence) {
+        if (card.color === "红" || card.color === "红蓝") counts.red += 1;
+        if (card.color === "蓝" || card.color === "红蓝") counts.blue += 1;
+        if (card.color === "黑") counts.black += 1;
+      }
+      return [player.id, counts];
+    })),
+    legalActionTypes: [...new Set(projection.legalActions.map((action) => action.type))],
+    policies,
+    decisions,
+    beliefs: policies.map((policy) => factionBeliefsForPolicy(memory, projection, policy)) as [
+      Record<string, FactionBelief>,
+      Record<string, FactionBelief>,
+    ],
+    publicEvent: projection.auditLog.at(-1),
   };
 }
 

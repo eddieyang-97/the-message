@@ -56,7 +56,7 @@ describe("game server sessions", () => {
     expect(await emitRawAck(host, "room:bot:remove", {
       targetPlayerId: bot!.id,
     })).toMatchObject({ ok: true });
-    await emitAck(host, "room:bot:add", { seatIndex: 1 });
+    expect(await emitRawAck(host, "room:bot:fill", {})).toMatchObject({ ok: true });
     const started = await emitAck<SafeStartRoomResult>(host, "room:start", {
       seatMode: "as-is",
     });

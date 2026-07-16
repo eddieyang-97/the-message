@@ -334,6 +334,10 @@ export function App() {
         "add-bot",
         () => client.addBot({ seatIndex: seat - 1 }),
       )}
+      onFillEmptySeatsWithBots={() => void runAction(
+        "fill-bots",
+        () => client.fillEmptySeatsWithBots(),
+      )}
       onLeaveRoom={leaveRoom}
       onMoveSeat={(seat) => void runAction("seat", () => client.requestSeat({ seatIndex: seat - 1 }))}
       onReactionTimeoutChange={(seconds: ReactionTimeoutSeconds) => void runAction(

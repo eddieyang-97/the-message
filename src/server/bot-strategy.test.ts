@@ -255,6 +255,7 @@ describe("bot strategy", () => {
         sourcePlayerId: "b",
         word: "看雨",
         requiredColor: "红",
+        verifiedNoMatch: false,
       },
       legalActions: [],
     });

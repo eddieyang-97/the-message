@@ -141,11 +141,6 @@ export class GameSessionService {
       throw new GameSessionError("NOT_A_GAME_PLAYER", "当前玩家不属于这局游戏");
     }
     const checkpoint = structuredClone(state);
-    const previousNotices = state.privateNotices[actorId];
-    state.privateNotices[actorId] = previousNotices.filter(
-      (notice) =>
-        notice.kind === "probePlayed" || notice.kind === "secretOrderPlayed",
-    );
     try {
       dispatchGameCommand(state, actorId, command);
     } catch (error) {

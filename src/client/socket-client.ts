@@ -37,6 +37,7 @@ export interface LobbySocketClient {
   answerSeatSwap(input: { requestId: string; accept: boolean }): Promise<void>;
   removePlayer(input: { targetPlayerId: string }): Promise<void>;
   addBot(input: { seatIndex: number }): Promise<void>;
+  fillEmptySeatsWithBots(): Promise<void>;
   removeBot(input: { targetPlayerId: string }): Promise<void>;
   setBotTakeover(input: { targetPlayerId: string; enabled: boolean }): Promise<void>;
   setReactionTimeout(input: { seconds: number | null }): Promise<void>;
@@ -86,6 +87,7 @@ export function createLobbySocketClient(socket: Socket = io()): LobbySocketClien
     answerSeatSwap: (input) => emitAck(socket, "room:swap:respond", input),
     removePlayer: (input) => emitAck(socket, "room:remove", input),
     addBot: (input) => emitAck(socket, "room:bot:add", input),
+    fillEmptySeatsWithBots: () => emitAck(socket, "room:bot:fill", {}),
     removeBot: (input) => emitAck(socket, "room:bot:remove", input),
     setBotTakeover: (input) => emitAck(socket, "room:bot:takeover", input),
     setReactionTimeout: (input) => emitAck(socket, "room:timeout", input),

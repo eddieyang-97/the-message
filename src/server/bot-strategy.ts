@@ -6,7 +6,7 @@ const FACTIONS = ["军情", "潜伏", "特工"] as const satisfies readonly Fact
 
 export type BotRandom = () => number;
 export type LegalAction = PlayerProjection["legalActions"][number];
-export type BotPolicyId = "baseline-v1" | "tactical-v2" | "candidate-v3";
+export type BotPolicyId = "baseline-v1" | "tactical-v2" | "candidate-v3" | "candidate-v4";
 
 interface PublicObservation {
   auditLength: number;
@@ -191,6 +191,16 @@ export function factionBeliefs(memory: BotMemory, projection: PlayerProjection):
   return result;
 }
 
+export function factionBeliefsForPolicy(
+  memory: BotMemory,
+  projection: PlayerProjection,
+  policy: BotPolicyId,
+): Record<string, FactionBelief> {
+  return policy === "candidate-v3" || policy === "candidate-v4"
+    ? factionBeliefs(memory, projection)
+    : independentFactionBeliefs(memory, projection);
+}
+
 function independentFactionBeliefs(memory: BotMemory, projection: PlayerProjection): Record<string, FactionBelief> {
   const distribution = factionsForPlayerCount(projection.players.length);
   const totals = Object.fromEntries(FACTIONS.map((faction) => [faction, distribution.filter((entry) => entry === faction).length])) as Record<Faction, number>;
@@ -265,16 +275,14 @@ export function chooseBotDecision(
     return undefined;
   }
   const policy = options.policy ?? "tactical-v2";
-  const beliefs = policy === "candidate-v3"
-    ? factionBeliefs(memory, projection)
-    : independentFactionBeliefs(memory, projection);
+  const beliefs = factionBeliefsForPolicy(memory, projection, policy);
   const excluded = new Set(
     options.excludedCommands?.map((command) => JSON.stringify(command)) ?? [],
   );
   const candidates = projection.legalActions
     .map((action) => policy === "baseline-v1"
       ? scoreBaselineAction(action, projection, beliefs)
-      : scoreAction(action, projection, beliefs))
+      : scoreAction(action, projection, beliefs, policy))
     .filter((candidate) => !excluded.has(JSON.stringify(candidate.command)));
 
   if (candidates.length === 0) {
@@ -341,6 +349,7 @@ function scoreAction(
   action: LegalAction,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
+  policy: BotPolicyId,
 ): BotDecision {
   const command = action as GameCommand;
   const ownFaction = projection.own.faction;
@@ -371,7 +380,13 @@ function scoreAction(
     case "PLAY_FUNCTION_SEPARATION":
       return decision(command, 7 + receiptUtility(projection.transmission?.card, action.targetId, projection, beliefs), "redirect toward the best tactical recipient");
     case "PLAY_BURN":
-      return decision(command, 7 + burnUtility(action.targetPlayerId, projection, beliefs), "remove dangerous black intelligence when it helps the bot's side");
+      return decision(
+        command,
+        (policy === "candidate-v4" ? 4 : 7) + burnUtility(action.targetPlayerId, projection, beliefs),
+        policy === "candidate-v4"
+          ? "burn only when the expected protection exceeds card-conservation cost"
+          : "remove dangerous black intelligence when it helps the bot's side",
+      );
     case "PLAY_PUBLIC_TEXT":
       return decision(command, targetAffinity(action.targetId, ownFaction, beliefs) * 5 + 8, "exchange with a likely ally");
     case "PLAY_DANGEROUS_INTELLIGENCE":

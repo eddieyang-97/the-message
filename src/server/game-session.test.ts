@@ -62,6 +62,27 @@ describe("GameSessionService", () => {
     expect(sessions.project("ABCDEF", targetId).own.id).toBe(targetId);
   });
 
+  it("keeps private notices after later commands such as automatic passes", () => {
+    const sessions = new GameSessionService();
+    const state = sessions.create("ABCDEF", players, 142);
+    const actorId = state.activePlayerId;
+    const noticeCard = PHYSICAL_DECK[0];
+    state.privateNotices[actorId].push({
+      kind: "dangerousDiscardLost",
+      otherPlayerId: players.find((id) => id !== actorId)!,
+      cardId: noticeCard.id as PhysicalCardId,
+    });
+
+    sessions.dispatch("ABCDEF", actorId, { type: "ENTER_TRANSMISSION_PHASE" });
+
+    expect(sessions.project("ABCDEF", actorId).privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "dangerousDiscardLost",
+        card: expect.objectContaining({ id: noticeCard.id }),
+      }),
+    );
+  });
+
   it("rejects missing sessions with a transport-safe code", () => {
     const sessions = new GameSessionService();
     expect(() => sessions.project("ABCDEF", "甲")).toThrowError(

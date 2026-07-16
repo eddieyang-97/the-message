@@ -291,6 +291,33 @@ export class RoomService {
     return this.snapshot(room);
   }
 
+  fillEmptySeatsWithBots(
+    roomCode: string,
+    hostPlayerId: string,
+  ): RoomSnapshot {
+    const room = this.requireRoom(roomCode);
+    this.requireLobby(room);
+    this.requireHost(room, hostPlayerId);
+
+    for (let seatIndex = 0; seatIndex < room.capacity; seatIndex += 1) {
+      if (playerAtSeat(room, seatIndex)) continue;
+      const bot: RoomPlayer = {
+        id: this.botIdGenerator(),
+        displayName: nextBotName(room),
+        seatIndex,
+        isHost: false,
+        isBot: true,
+        botControlled: true,
+        connected: true,
+        alive: true,
+        joinedSequence: room.nextJoinedSequence++,
+      };
+      room.players.set(bot.id, bot);
+      room.publicAuditLog.push(`${bot.displayName} 加入了房间`);
+    }
+    return this.snapshot(room);
+  }
+
   removeBot(
     roomCode: string,
     hostPlayerId: string,

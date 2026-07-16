@@ -269,8 +269,16 @@ describe("秘密下达", () => {
         card: expect.objectContaining({ id: orderId }),
       }),
     );
-    expect(projectGameForPlayer(state, "甲").privateNotices).toEqual([]);
+    expect(projectGameForPlayer(state, "甲").privateNotices).toContainEqual(
+      expect.objectContaining({
+        kind: "secretOrderReceived",
+        otherPlayerId: "乙",
+        card: expect.objectContaining({ id: orderId }),
+      }),
+    );
     passAll(state);
+    expect(projectGameForPlayer(state, "甲").pendingSecretOrder?.requiredColor).toBe(required);
+    expect(projectGameForPlayer(state, "丙").pendingSecretOrder?.requiredColor).toBeUndefined();
     expect(state.hiddenSecretOrders).toContain(orderId);
     expect(state.auditLog.some((entry) => entry.includes("窗口结束"))).toBe(false);
     expect(() => startTransmission(state, "甲", nonmatching)).toThrow("必须传递符合秘密下达颜色");
@@ -308,6 +316,9 @@ describe("秘密下达", () => {
     enterTransmissionPhase(state, "甲");
     playSecretOrder(state, "乙", orderId, word);
     passAll(state);
+    expect(projectGameForPlayer(state, "甲").legalActions).toEqual([
+      { type: "CLAIM_NO_SECRET_ORDER_MATCH" },
+    ]);
     claimNoSecretOrderMatch(state, "甲");
     expect(projectGameForPlayer(state, "乙").pendingSecretOrder?.inspectedHand?.map((c) => c.id))
       .toEqual(state.players["甲"].hand);

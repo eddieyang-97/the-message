@@ -97,6 +97,26 @@ function passAll(state: GameState): void {
 }
 
 describe("行动阶段功能牌框架", () => {
+  it("公开文本和危险情报在有持牌目标时生成可见的目标行动", () => {
+    const state = game(9);
+    const publicText = cardId("公开文本");
+    const dangerous = cardId("危险情报", [publicText]);
+    putInHand(state, "甲", publicText, 0);
+    putInHand(state, "甲", dangerous, 1);
+
+    const actions = projectGameForPlayer(state, "甲").legalActions;
+    expect(actions).toContainEqual({
+      type: "PLAY_PUBLIC_TEXT",
+      cardId: publicText,
+      targetId: "乙",
+    });
+    expect(actions).toContainEqual({
+      type: "PLAY_DANGEROUS_INTELLIGENCE",
+      cardId: dangerous,
+      targetId: "乙",
+    });
+  });
+
   it("使用功能牌时必须保留至少一张用于传递的手牌", () => {
     const state = game(10);
     const reinforcement = cardId("增援");

@@ -414,6 +414,17 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
       if (room) await broadcastRoom(room.code);
     });
 
+    socket.on("room:bot:fill", async (_request, acknowledge) => {
+      const room = reply(acknowledge, () => {
+        const identity = requireIdentity();
+        return roomService.fillEmptySeatsWithBots(
+          identity.roomCode,
+          identity.playerId,
+        );
+      });
+      if (room) await broadcastRoom(room.code);
+    });
+
     socket.on("room:bot:remove", async (request, acknowledge) => {
       const room = reply(acknowledge, () => {
         const identity = requireIdentity();

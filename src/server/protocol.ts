@@ -70,6 +70,10 @@ export interface ClientToServerEvents {
     request: { seatIndex: number },
     acknowledge: Acknowledge,
   ) => void;
+  "room:bot:fill": (
+    request: Record<string, never>,
+    acknowledge: Acknowledge,
+  ) => void;
   "room:bot:remove": (
     request: { targetPlayerId: string },
     acknowledge: Acknowledge,

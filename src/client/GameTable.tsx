@@ -51,6 +51,15 @@ export function automaticPassDelayMs(
   return action.type === "PASS_REACTION" ? 1_000 : 0;
 }
 
+export function isNearScrollBottom(
+  scrollTop: number,
+  clientHeight: number,
+  scrollHeight: number,
+  threshold = 32,
+): boolean {
+  return scrollHeight - scrollTop - clientHeight <= threshold;
+}
+
 function loadAutoPassPreference(): boolean {
   try {
     const stored = localStorage.getItem(AUTO_PASS_STORAGE_KEY);
@@ -281,6 +290,120 @@ export function cardVariantText(card: PhysicalCard): string | undefined {
   return undefined;
 }
 
+export function publicTextReceiptEffect(card: PhysicalCard): string | undefined {
+  if (card.name !== "公开文本") return undefined;
+  if (card.variant?.kind === "publicTextBlack") {
+    return `${card.variant.mandatoryDrawFaction}必须摸 1 张；其他阵营选择摸 1 张或摸 2 张`;
+  }
+  if (card.variant?.kind === "publicTextColor" && card.color === "红") {
+    return "潜伏必须弃 1 张；军情／特工选择摸 1 张或弃 1 张";
+  }
+  if (card.variant?.kind === "publicTextColor" && card.color === "蓝") {
+    return "军情必须弃 1 张；潜伏／特工选择摸 1 张或弃 1 张";
+  }
+  return undefined;
+}
+
+function CardDetailDialog({ card, onClose }: { card: PhysicalCard; onClose: () => void }) {
+  const panelRef = useRef<HTMLElement>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const drag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  } | undefined>(undefined);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const stopDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = undefined;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  return (
+    <div className="card-detail-backdrop" onPointerDown={onClose} role="presentation">
+      <section
+        aria-label={`${card.name}详情`}
+        aria-modal="true"
+        className="card-detail-dialog"
+        onPointerDown={(event) => event.stopPropagation()}
+        ref={panelRef}
+        role="dialog"
+        style={{ transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))` }}
+      >
+        <header
+          onDoubleClick={() => setOffset({ x: 0, y: 0 })}
+          onPointerCancel={stopDrag}
+          onPointerDown={(event) => {
+            if (
+              event.button !== 0 ||
+              !panelRef.current ||
+              (event.target as HTMLElement).closest("button")
+            ) return;
+            const rect = panelRef.current.getBoundingClientRect();
+            const margin = 8;
+            drag.current = {
+              pointerId: event.pointerId,
+              startX: event.clientX,
+              startY: event.clientY,
+              originX: offset.x,
+              originY: offset.y,
+              minX: offset.x + margin - rect.left,
+              maxX: offset.x + window.innerWidth - margin - rect.right,
+              minY: offset.y + margin - rect.top,
+              maxY: offset.y + window.innerHeight - margin - rect.bottom,
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const active = drag.current;
+            if (!active || active.pointerId !== event.pointerId) return;
+            setOffset({
+              x: Math.min(active.maxX, Math.max(active.minX, active.originX + event.clientX - active.startX)),
+              y: Math.min(active.maxY, Math.max(active.minY, active.originY + event.clientY - active.startY)),
+            });
+          }}
+          onPointerUp={stopDrag}
+          title="拖动调整位置；双击复位"
+        >
+          <strong>卡牌详情 <i aria-hidden="true">⠿</i></strong>
+          <button aria-label="关闭卡牌详情" onClick={onClose} type="button">×</button>
+        </header>
+        <div className="card-detail-content">
+          <CardView card={card} />
+          <div>
+            <h2>{card.name}</h2>
+            <p>{card.color} · {card.transmission}{card.circle ? " · 可选方向" : ""}</p>
+            {card.color === "黑" && <p>{card.unburnable ? "不可烧毁" : "可烧毁"}</p>}
+            {publicTextReceiptEffect(card) && (
+              <section className="receipt-effect-detail">
+                <strong>作为情报收到后</strong>
+                <p>{publicTextReceiptEffect(card)}</p>
+                <small>先检查死亡；存活时再结算此效果。</small>
+              </section>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function probeVariantLabel(card: PhysicalCard | undefined): string | undefined {
   if (card?.variant?.kind === "probeIdentity") return "身份代码";
   if (card?.variant?.kind === "probeDrawDiscard") {
@@ -289,16 +412,17 @@ function probeVariantLabel(card: PhysicalCard | undefined): string | undefined {
   return undefined;
 }
 
-function CardView({ card, selected, playable, onClick }: {
+function CardView({ card, selected, playable, inspectable, onClick }: {
   card: PhysicalCard;
   selected?: boolean;
   playable?: boolean;
+  inspectable?: boolean;
   onClick?: () => void;
 }) {
   const variantText = cardVariantText(card);
   return (
     <button
-      className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}`}
+      className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
       disabled={!onClick}
       onClick={onClick}
       title={`${card.name} · ${card.color} · ${card.transmission}${card.unburnable ? " · 不可烧毁" : ""}`}
@@ -308,6 +432,7 @@ function CardView({ card, selected, playable, onClick }: {
       <span>{card.color} · {card.transmission}</span>
       {variantText && <small>{variantText}</small>}
       {card.circle && <small>可选方向</small>}
+      {inspectable && <small className="card-detail-hint">查看详情</small>}
       {card.color === "黑" && card.unburnable && (
         <small className="unburnable-badge">不可烧毁</small>
       )}
@@ -374,9 +499,16 @@ export function promptTitle(projection: PlayerProjection): string {
     projection.activePlayerId === projection.own.id &&
     !projection.reactionWindow
   ) {
-    return actions.some((action) => action.type === "CLAIM_NO_SECRET_ORDER_MATCH")
-      ? "没有符合要求的手牌，请先声明"
-      : "请选择要传递的情报";
+    if (actions.some((action) => action.type === "CLAIM_NO_SECRET_ORDER_MATCH")) {
+      return `没有符合秘密下达要求的${projection.pendingSecretOrder.requiredColor ?? "指定"}色手牌，请先声明`;
+    }
+    if (
+      projection.pendingSecretOrder.requiredColor &&
+      !projection.pendingSecretOrder.verifiedNoMatch
+    ) {
+      return `秘密下达要求：请选择${projection.pendingSecretOrder.requiredColor}色情报`;
+    }
+    return "请选择要传递的情报";
   }
   if (actions.length === 0) return "等待其他玩家操作";
   if (actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT")) return "手牌超过 7 张，请先弃牌";
@@ -445,7 +577,10 @@ export function GameTable({
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
   const [discardPileOpen, setDiscardPileOpen] = useState(false);
+  const [detailCard, setDetailCard] = useState<PhysicalCard>();
   const [privateNoticesCollapsed, setPrivateNoticesCollapsed] = useState(false);
+  const auditLogRef = useRef<HTMLOListElement>(null);
+  const auditLogFollowsLatest = useRef(true);
   const actions = projection.legalActions;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
@@ -471,7 +606,17 @@ export function GameTable({
     !projection.reactionWindow &&
     !forcedChoice;
   const selectableCardIds = new Set(playableCardIds);
-  if (canStartTransmission) projection.own.hand.forEach((card) => selectableCardIds.add(card.id));
+  if (canStartTransmission) {
+    const requiredColor = projection.pendingSecretOrder?.requiredColor;
+    const orderApplies = requiredColor && !projection.pendingSecretOrder?.verifiedNoMatch;
+    projection.own.hand
+      .filter((card) =>
+        !orderApplies ||
+        card.color === requiredColor ||
+        (card.color === "红蓝" && requiredColor !== "黑"),
+      )
+      .forEach((card) => selectableCardIds.add(card.id));
+  }
   const selectionContext = [
     projection.phase,
     projection.activePlayerId,
@@ -499,6 +644,12 @@ export function GameTable({
     mergeAuditLogs(projection.auditLog, roomAuditLog),
     playerDisplayNames,
   );
+
+  useEffect(() => {
+    const log = auditLogRef.current;
+    if (!log || !auditLogFollowsLatest.current) return;
+    log.scrollTop = log.scrollHeight;
+  }, [auditEntries.length]);
   const displaySeatOrder = useMemo(
     () => seatOrderAnchoredAtPlayer(projection.seatOrder, projection.own.id),
     [projection.own.id, projection.seatOrder],
@@ -654,7 +805,12 @@ export function GameTable({
                           card={card}
                           key={card.id}
                           playable={Boolean(burnAction)}
-                          onClick={burnAction && !busy && connected ? () => onCommand(burnAction) : undefined}
+                          inspectable={card.name === "公开文本" && !burnAction}
+                          onClick={burnAction && !busy && connected
+                            ? () => onCommand(burnAction)
+                            : card.name === "公开文本"
+                              ? () => setDetailCard(card)
+                              : undefined}
                         />
                       );
                     })}
@@ -674,7 +830,20 @@ export function GameTable({
                 } as React.CSSProperties}
               >
                 {projection.transmission.card
-                  ? <CardView card={projection.transmission.card} />
+                  ? <>
+                      <CardView
+                        card={projection.transmission.card}
+                        inspectable={projection.transmission.card.name === "公开文本"}
+                        onClick={projection.transmission.card.name === "公开文本"
+                          ? () => setDetailCard(projection.transmission!.card)
+                          : undefined}
+                      />
+                      {publicTextReceiptEffect(projection.transmission.card) && (
+                        <small className="transmission-receipt-summary">
+                          收到后：{publicTextReceiptEffect(projection.transmission.card)}
+                        </small>
+                      )}
+                    </>
                   : <div className="hidden-card">未公开情报</div>}
               </div>
             )}
@@ -744,7 +913,9 @@ export function GameTable({
                           ? `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】通过危险情报从你手中弃置了这张牌：`
                           : notice.kind === "probePlayed"
                             ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的试探详情：`
-                            : `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`}
+                            : notice.kind === "secretOrderPlayed"
+                              ? `你对【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】使用的秘密下达详情：`
+                              : `【${playerDisplayNames[notice.otherPlayerId] ?? notice.otherPlayerId}】对你使用的秘密下达详情：`}
                     </p>
                     <CardView card={notice.card} />
                   </div>
@@ -802,12 +973,25 @@ export function GameTable({
 
         <aside className="audit-panel">
           <h2>公开记录</h2>
-          <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
+          <ol
+            onScroll={(event) => {
+              const log = event.currentTarget;
+              auditLogFollowsLatest.current = isNearScrollBottom(
+                log.scrollTop,
+                log.clientHeight,
+                log.scrollHeight,
+              );
+            }}
+            ref={auditLogRef}
+          >
+            {auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}
+          </ol>
         </aside>
       </section>
       {discardPileOpen && (
         <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
       )}
+      {detailCard && <CardDetailDialog card={detailCard} onClose={() => setDetailCard(undefined)} />}
     </main>
   );
 }

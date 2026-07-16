@@ -10,8 +10,10 @@ import {
   factionBackgroundClass,
   formatAuditEntries,
   inspectedHandForProjection,
+  isNearScrollBottom,
   mergeAuditLogs,
   promptTitle,
+  publicTextReceiptEffect,
   seatOrderAnchoredAtPlayer,
   transmissionDirectionForSelection,
 } from "./GameTable";
@@ -46,6 +48,25 @@ const secretOrder = {
   },
 } satisfies PhysicalCard;
 
+const redPublicText = {
+  id: "public-red",
+  photo: 1,
+  position: 3,
+  name: "公开文本",
+  color: "红",
+  transmission: "文本",
+  circle: false,
+  unburnable: false,
+  variant: { kind: "publicTextColor" },
+} satisfies PhysicalCard;
+
+const blackPublicText = {
+  ...redPublicText,
+  id: "public-black",
+  color: "黑",
+  variant: { kind: "publicTextBlack", mandatoryDrawFaction: "特工" },
+} satisfies PhysicalCard;
+
 const projection = {
   own: { id: "甲", faction: "军情", hand: [identityProbe, secretOrder] },
   players: [{ id: "乙" }],
@@ -78,6 +99,16 @@ describe("game table card parameters", () => {
       projection,
       {},
     )).toBe("随机交出一张手牌");
+  });
+
+  it("describes every public-text receipt variant", () => {
+    expect(publicTextReceiptEffect(redPublicText)).toBe(
+      "潜伏必须弃 1 张；军情／特工选择摸 1 张或弃 1 张",
+    );
+    expect(publicTextReceiptEffect(blackPublicText)).toBe(
+      "特工必须摸 1 张；其他阵营选择摸 1 张或摸 2 张",
+    );
+    expect(publicTextReceiptEffect(identityProbe)).toBeUndefined();
   });
 });
 
@@ -114,6 +145,13 @@ describe("automatic reaction passing", () => {
   });
 });
 
+describe("match log auto-follow", () => {
+  it("follows new entries only while the reader remains near the bottom", () => {
+    expect(isNearScrollBottom(468, 500, 1_000)).toBe(true);
+    expect(isNearScrollBottom(400, 500, 1_000)).toBe(false);
+  });
+});
+
 describe("transmission prompt", () => {
   it("asks the active player to select intelligence after secret-order polling", () => {
     expect(promptTitle({
@@ -123,9 +161,27 @@ describe("transmission prompt", () => {
       pendingSecretOrder: {
         stage: "selection",
         targetPlayerId: "甲",
+        verifiedNoMatch: false,
       },
       legalActions: [],
     })).toBe("请选择要传递的情报");
+  });
+
+  it("shows the resolved secret-order color to its target", () => {
+    expect(promptTitle({
+      ...projection,
+      phase: "preTransmission",
+      activePlayerId: "甲",
+      pendingSecretOrder: {
+        stage: "selection",
+        targetPlayerId: "甲",
+        sourcePlayerId: "乙",
+        word: "日落",
+        requiredColor: "黑",
+        verifiedNoMatch: false,
+      },
+      legalActions: [],
+    })).toBe("秘密下达要求：请选择黑色情报");
   });
 });
 
@@ -138,6 +194,7 @@ describe("private hand inspection", () => {
         targetPlayerId: "甲",
         sourcePlayerId: "乙",
         word: "听风",
+        verifiedNoMatch: true,
         inspectedHand: [identityProbe],
       },
     })).toEqual([identityProbe]);

@@ -160,6 +160,7 @@ Hand-limit timing:
 - A successful 截获 removes any 锁定 attached to the previous intended recipient.
 - Do not offer the final interceptor an accept/decline decision, a new 锁定 opportunity, or a 破译 opportunity.
 - 掉包 remains legal after 截获; the replacement intelligence inherits the interceptor's mandatory-acceptance commitment.
+- 转移 is not legal after 截获 because the interceptor is committed to accepting.
 - After all reactions finish, the final successful interceptor accepts the pending intelligence automatically.
 - The active player cannot play 截获 during their own turn.
 - This includes intercepting their own intelligence back after another player intercepts it.
@@ -213,7 +214,7 @@ Implementation note:
 ### 转移
 
 - Any current intended recipient may use 转移 during their own final receipt-response priority, including a player who was not the original sender.
-- 转移 is legal only while the intelligence is not locked.
+- 转移 is legal only while the intelligence is not locked and the current recipient is not committed by 截获.
 - Choose a different living intended recipient.
 - This does not cause immediate acceptance; normal response timing resumes.
 - After 转移 and its reactions resolve, the final transferred target is committed to acceptance. No new 锁定 opportunity opens; the target may still use 破译, 掉包, or another legal 转移 before mandatory acceptance.
