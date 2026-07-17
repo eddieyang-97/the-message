@@ -10,14 +10,14 @@ import {
   type TournamentCampaignCheckpoint,
   type TournamentCampaignConfig,
 } from "./campaign";
-import { CANDIDATE_V7, evaluationPolicyById } from "./policies";
+import { CANDIDATE_V8, evaluationPolicyById } from "./policies";
 import { LIVE_BOT_POLICY } from "../server/bot/strategy";
 
 const parsed = parseArguments(process.argv.slice(2));
 const playerCount = parseInteger(parsed.positional[0] ?? "5", "player count") as 2 | 5 | 6 | 7 | 8;
 const targetPairs = parseInteger(parsed.positional[1] ?? "1000", "pair count");
 const startSeed = parseInteger(parsed.positional[2] ?? "1", "start seed");
-const candidate = evaluationPolicyById(parsed.options.candidate ?? CANDIDATE_V7.id);
+const candidate = evaluationPolicyById(parsed.options.candidate ?? CANDIDATE_V8.id);
 const baseline = evaluationPolicyById(parsed.options.baseline ?? LIVE_BOT_POLICY.id);
 if (candidate.id === baseline.id) throw new Error("candidate and baseline policies must differ");
 const chunkSize = parseInteger(parsed.options["chunk-size"] ?? String(Math.min(100, targetPairs)), "chunk size");

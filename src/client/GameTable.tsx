@@ -15,6 +15,7 @@ import "./game-table.css";
 
 export type ProjectedLegalAction = PlayerProjection["legalActions"][number];
 type BurnCommand = Extract<GameCommand, { type: "PLAY_BURN" }>;
+export type IdentityMarker = "" | Faction;
 
 export interface GameTableProps {
   projection: PlayerProjection;
@@ -585,6 +586,25 @@ export function formatAuditEntries(
   );
 }
 
+export function auditEntryInvolvesPlayer(
+  entry: string,
+  playerId: string,
+  displayName?: string,
+): boolean {
+  return entry.includes(playerId) || Boolean(displayName && entry.includes(displayName));
+}
+
+export function updateIdentityMarkers(
+  markers: Readonly<Record<string, Faction>>,
+  playerId: string,
+  marker: IdentityMarker,
+): Record<string, Faction> {
+  if (marker) return { ...markers, [playerId]: marker };
+  const updated = { ...markers };
+  delete updated[playerId];
+  return updated;
+}
+
 export function GameTable({
   projection,
   playerDisplayNames = {},
@@ -615,6 +635,8 @@ export function GameTable({
   const [detailCard, setDetailCard] = useState<PhysicalCard>();
   const [privateNoticesCollapsed, setPrivateNoticesCollapsed] = useState(false);
   const [responsePanelOffset, setResponsePanelOffset] = useState({ x: 0, y: 0 });
+  const [auditPlayerFilter, setAuditPlayerFilter] = useState("");
+  const [identityMarkers, setIdentityMarkers] = useState<Record<string, Faction>>({});
   const auditLogRef = useRef<HTMLOListElement>(null);
   const auditLogFollowsLatest = useRef(true);
   const actions = projection.legalActions;
@@ -676,10 +698,19 @@ export function GameTable({
   }, [selectedCardId, selectableCardIds]);
 
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
-  const auditEntries = formatAuditEntries(
-    mergeAuditLogs(projection.auditLog, publicAuditEvents),
-    playerDisplayNames,
-  );
+  const mergedAuditEntries = mergeAuditLogs(projection.auditLog, publicAuditEvents);
+  const auditEntries = mergedAuditEntries
+    .map((entry, index) => ({
+      index,
+      text: formatAuditEntries([entry], playerDisplayNames)[0]!,
+    }))
+    .filter(({ index }) =>
+      !auditPlayerFilter || auditEntryInvolvesPlayer(
+        mergedAuditEntries[index]!,
+        auditPlayerFilter,
+        playerDisplayNames[auditPlayerFilter],
+      )
+    );
 
   useEffect(() => {
     const log = auditLogRef.current;
@@ -861,6 +892,23 @@ export function GameTable({
                     {player.faction && <span className="faction-badge">{player.faction}</span>}
                     {isTarget && <em>选择为目标</em>}
                   </button>
+                  {!isOwn && !player.faction && (
+                    <select
+                      aria-label={`标记${playerDisplayNames[id] ?? id}的推测身份`}
+                      className={`identity-marker${identityMarkers[id] ? ` identity-marker--${identityMarkers[id] === "军情" ? "intelligence" : identityMarkers[id] === "潜伏" ? "undercover" : "agent"}` : ""}`}
+                      onChange={(event) => {
+                        const marker = event.target.value as IdentityMarker;
+                        setIdentityMarkers((current) => updateIdentityMarkers(current, id, marker));
+                      }}
+                      title="仅自己可见的推测身份"
+                      value={identityMarkers[id] ?? ""}
+                    >
+                      <option value="">身份？</option>
+                      <option value="军情">军情</option>
+                      <option value="潜伏">潜伏</option>
+                      <option value="特工">特工</option>
+                    </select>
+                  )}
                   <div
                     className={`intel-row${player.intelligence.length > 4 ? " intel-row--dense" : ""}`}
                     aria-label={`${playerDisplayNames[id] ?? id} 的情报`}
@@ -1045,7 +1093,23 @@ export function GameTable({
         </div>
 
         <aside className="audit-panel">
-          <h2>公开记录</h2>
+          <header>
+            <h2>公开记录</h2>
+            <label>
+              <select
+                aria-label="按玩家筛选公开记录"
+                onChange={(event) => setAuditPlayerFilter(event.target.value)}
+                value={auditPlayerFilter}
+              >
+                <option value="">全部玩家</option>
+                {projection.players.map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {playerDisplayNames[player.id] ?? player.id}{player.id === projection.own.id ? "（你）" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </header>
           <ol
             onScroll={(event) => {
               const log = event.currentTarget;
@@ -1057,7 +1121,9 @@ export function GameTable({
             }}
             ref={auditLogRef}
           >
-            {auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}
+            {auditEntries.map((entry) => (
+              <li key={`${entry.text}-${entry.index}`} value={entry.index + 1}>{entry.text}</li>
+            ))}
           </ol>
         </aside>
       </section>

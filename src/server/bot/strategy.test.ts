@@ -13,15 +13,18 @@ import {
   TACTICAL_V2,
   TACTICAL_V3,
 } from "./strategy";
-import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7 } from "../../ai-lab/policies";
+import { CANDIDATE_V5, CANDIDATE_V6, CANDIDATE_V7, CANDIDATE_V8 } from "../../ai-lab/policies";
 
 const blueCard = cardWhere((card) => card.color === "蓝");
 const redDirectCard = cardWhere((card) => card.color === "红" && card.transmission === "直达");
+const redPublicText = cardWhere((card) => card.name === "公开文本" && card.color === "红");
 const blueDirectCard = cardWhere((card) => card.color === "蓝" && card.transmission === "直达");
 const blackCard = cardWhere((card) => card.color === "黑");
 const counterCard = cardWhere((card) => card.name === "识破");
 const transferCard = cardWhere((card) => card.name === "转移");
 const separationCard = cardWhere((card) => card.name === "离间");
+const lureCard = cardWhere((card) => card.name === "调虎离山");
+const blueMailCard = cardWhere((card) => card.color === "蓝" && card.transmission === "密电");
 const secretOrderCard = cardWhere((card) => card.variant?.kind === "secretOrder");
 const redSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "红");
 const blueSwapCard = cardWhere((card) => card.name === "掉包" && card.color === "蓝");
@@ -75,6 +78,87 @@ describe("bot strategy", () => {
     };
     observeBotProjection(memory, withTransmission);
     expect(memory.evidence.b.军情).toBeGreaterThan(memory.evidence.b.潜伏);
+  });
+
+  it("treats a visible secret-order color as weak evidence of the orderer's faction", () => {
+    const offering = makeProjection({
+      phase: "preTransmission",
+      pendingSecretOrder: {
+        stage: "offering",
+        targetPlayerId: "bot",
+        verifiedNoMatch: false,
+      },
+    });
+    const memory = createBotMemory(offering);
+    const ordered = makeProjection({
+      phase: "preTransmission",
+      pendingSecretOrder: {
+        stage: "selection",
+        sourcePlayerId: "b",
+        targetPlayerId: "bot",
+        word: "听风",
+        requiredColor: "蓝",
+        verifiedNoMatch: false,
+      },
+    });
+
+    observeBotProjection(memory, ordered);
+
+    expect(memory.evidence.b.军情).toBeGreaterThan(memory.evidence.b.潜伏);
+
+    const uninformed = createBotMemory({
+      ...ordered,
+      pendingSecretOrder: { ...ordered.pendingSecretOrder!, requiredColor: undefined },
+    });
+    expect(uninformed.evidence.b.军情).toBe(0);
+    expect(uninformed.evidence.b.潜伏).toBe(0);
+  });
+
+  it("treats a forced public-text discard as definitive faction evidence", () => {
+    const forced = makeProjection({
+      phase: "resolvingReceipt",
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, intelligence: [redPublicText] } : player
+      ),
+      auditLog: [
+        "b接收情报：「公开文本（红 · 文本）」",
+        "b须为公开文本选择一张手牌弃置",
+      ],
+    });
+    const forcedMemory = createBotMemory(forced);
+    expect(factionBeliefs(forcedMemory, forced).b).toEqual({ 军情: 0, 潜伏: 1, 特工: 0 });
+
+    const optional = makeProjection({
+      phase: "resolvingReceipt",
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, intelligence: [redPublicText] } : player
+      ),
+      auditLog: [
+        "b接收情报：「公开文本（红 · 文本）」",
+        "b须选择公开文本的摸牌或弃牌效果",
+        "b选择为公开文本弃置一张手牌",
+        "b因公开文本弃置一张手牌",
+      ],
+    });
+    expect(factionBeliefs(createBotMemory(optional), optional).b.潜伏).toBeLessThan(1);
+  });
+
+  it("rules out factions whose victory thresholds were passed without winning", () => {
+    const threeRed = [
+      redDirectCard,
+      { ...redDirectCard, id: "second-red" },
+      { ...redDirectCard, id: "third-red" },
+    ];
+    const continued = makeProjection({
+      phase: "transmitting",
+      players: makeProjection().players.map((player) =>
+        player.id === "b" ? { ...player, intelligence: threeRed } : player
+      ),
+    });
+    expect(factionBeliefs(createBotMemory(continued), continued).b.潜伏).toBe(0);
+
+    const stillResolving = { ...continued, phase: "resolvingReceipt" as const };
+    expect(factionBeliefs(createBotMemory(stillResolving), stillResolving).b.潜伏).toBeGreaterThan(0);
   });
 
   it("treats receiving the +1 probe outcome as evidence that the sender is a teammate", () => {
@@ -280,6 +364,36 @@ describe("bot strategy", () => {
     expect(chooseTransfer(blueCard, [])).toBe("PASS_REACTION");
     expect(chooseTransfer(blackCard, [blackCard, { ...blackCard, id: "second-black" }]))
       .toBe("PLAY_TRANSFER");
+  });
+
+  it("candidate-v8 uses lure only when the forced next recipient improves the receipt", () => {
+    const chooseLure = (currentFaction: Faction, nextFaction: Faction, policy = CANDIDATE_V8) => {
+      const projection = makeProjection({
+        phase: "transmitting",
+        own: { id: "bot", faction: "军情", hand: [lureCard] },
+        players: makeProjection().players.map((player) =>
+          player.id === "b"
+            ? { ...player, faction: currentFaction }
+            : player.id === "c"
+              ? { ...player, faction: nextFaction }
+              : player
+        ),
+        transmission: {
+          ...transmission(blueMailCard),
+          intendedRecipientId: "b",
+          direction: "clockwise",
+        },
+        legalActions: [
+          { type: "PASS_REACTION" },
+          { type: "PLAY_LURE", cardId: lureCard.id as PhysicalCardId },
+        ],
+      });
+      return chooseBotCommand(projection, createBotMemory(projection), { policy })?.type;
+    };
+
+    expect(chooseLure("军情", "潜伏")).toBe("PASS_REACTION");
+    expect(chooseLure("潜伏", "军情")).toBe("PLAY_LURE");
+    expect(chooseLure("军情", "潜伏", TACTICAL_V3)).toBe("PLAY_LURE");
   });
 
   it("does not order a known opponent to transmit their game-winning color", () => {

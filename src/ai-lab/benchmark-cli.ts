@@ -1,5 +1,5 @@
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V7 } from "./policies";
+import { CANDIDATE_V8 } from "./policies";
 import { LIVE_BOT_POLICY } from "../server/bot/strategy";
 
 const mode = process.argv[2] === "ab"
@@ -17,7 +17,7 @@ if (mode === "ab") {
     playerCount,
     pairs: games,
     startSeed,
-    candidatePolicy: CANDIDATE_V7,
+    candidatePolicy: CANDIDATE_V8,
   });
   console.log(`AI A/B: ${result.pairs} pairs (${result.games} games), ${result.playerCount} players`);
   console.log(`completed=${result.completed} stalled=${result.stalled} commandLimit=${result.commandLimited}`);
@@ -27,7 +27,7 @@ if (mode === "ab") {
   const results = Array.from({ length: games }, (_, index) => runSelfPlayGame({
     playerCount,
     seed: startSeed + index,
-    comparePolicies: [LIVE_BOT_POLICY, CANDIDATE_V7],
+    comparePolicies: [LIVE_BOT_POLICY, CANDIDATE_V8],
   }));
   const disagreements = results.flatMap((result) => result.disagreements);
   const categoryCounts = new Map<string, number>();

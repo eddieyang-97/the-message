@@ -13,13 +13,20 @@ the production server runtime.
 The live server bot remains under `src/server/bot/`. `LIVE_BOT_POLICY` pins
 production to `tactical-v3`, the promoted candidate-v5 configuration. Historical
 and candidate policies remain available for explicit evaluation and rollback.
-`candidate-v7` is the current focused experiment: it scores 转移 by improvement
-over the current recipient instead of the proposed recipient's absolute value.
+`candidate-v8` is the current focused experiment: it scores 调虎离山 by the
+change from the current recipient to the forced next recipient, instead of
+playing it for a fixed value regardless of who benefits. `candidate-v7` remains
+available as the earlier incremental 转移 experiment.
+
+Initial five-player paired run (100 pairs, seeds 1-100): candidate-v8 37.2%
+versus tactical-v3 35.4%, paired difference +1.8 percentage points with a 95%
+confidence interval of [-3.2, +6.8]. The result is inconclusive; keep
+`tactical-v3` live pending a larger campaign.
 
 For a large five-player comparison, save an atomic checkpoint after each chunk:
 
 ```powershell
-npm run ai:campaign -- 5 5000 1 --candidate candidate-v7 --baseline tactical-v3 --chunk-size 100 --checkpoint .ai-results/v7-v3.json
+npm run ai:campaign -- 5 5000 1 --candidate candidate-v8 --baseline tactical-v3 --chunk-size 100 --checkpoint .ai-results/v8-v3.json
 ```
 
 If the process stops, repeat the command with `--resume`. A checkpoint is only

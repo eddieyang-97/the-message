@@ -4,6 +4,7 @@ import type { PhysicalCard } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import {
   actionDetail,
+  auditEntryInvolvesPlayer,
   automaticPassDelayMs,
   automaticPassCommand,
   cardVariantText,
@@ -17,6 +18,7 @@ import {
   responseActionText,
   seatOrderAnchoredAtPlayer,
   transmissionDirectionForSelection,
+  updateIdentityMarkers,
 } from "./GameTable";
 
 const identityProbe = {
@@ -118,6 +120,18 @@ describe("own faction background", () => {
     expect(factionBackgroundClass("军情")).toBe("game-shell--faction-intelligence");
     expect(factionBackgroundClass("潜伏")).toBe("game-shell--faction-undercover");
     expect(factionBackgroundClass("特工")).toBe("game-shell--faction-agent");
+  });
+});
+
+describe("private identity markers", () => {
+  it("adds, changes, and clears an opponent's inferred faction without mutating prior notes", () => {
+    const initial = { 乙: "军情" as const };
+    const changed = updateIdentityMarkers(initial, "乙", "潜伏");
+    const cleared = updateIdentityMarkers(changed, "乙", "");
+
+    expect(initial).toEqual({ 乙: "军情" });
+    expect(changed).toEqual({ 乙: "潜伏" });
+    expect(cleared).toEqual({});
   });
 });
 
@@ -249,6 +263,14 @@ describe("private hand inspection", () => {
 });
 
 describe("public audit log", () => {
+  it("matches a player as either the action initiator or its target and recipient", () => {
+    expect(auditEntryInvolvesPlayer("甲对乙使用危险情报，等待响应", "甲")).toBe(true);
+    expect(auditEntryInvolvesPlayer("甲对乙使用危险情报，等待响应", "乙")).toBe(true);
+    expect(auditEntryInvolvesPlayer("乙接收情报：「转移（蓝 · 密电）」", "乙")).toBe(true);
+    expect(auditEntryInvolvesPlayer("甲的回合结束", "乙")).toBe(false);
+    expect(auditEntryInvolvesPlayer("小乙 已重新连接", "player-b", "小乙")).toBe(true);
+  });
+
   it("uses the shared server sequence to interleave room and gameplay entries", () => {
     expect(mergeAuditLogs(
       ["stale projection entry"],

@@ -15,6 +15,8 @@ export interface BotPolicy {
   readonly reactionConservation: number;
   /** Score transfer as improvement over leaving the intelligence with its current recipient. */
   readonly incrementalTransfer: boolean;
+  /** Score 调虎离山 by the receipt change caused by forcing the current recipient to decline. */
+  readonly incrementalLure: boolean;
 }
 export const BASELINE_V1: BotPolicy = {
   id: "baseline-v1",
@@ -23,6 +25,7 @@ export const BASELINE_V1: BotPolicy = {
   burnBase: 7,
   reactionConservation: 0,
   incrementalTransfer: false,
+  incrementalLure: false,
 };
 export const TACTICAL_V2: BotPolicy = {
   id: "tactical-v2",
@@ -31,6 +34,7 @@ export const TACTICAL_V2: BotPolicy = {
   burnBase: 7,
   reactionConservation: 0,
   incrementalTransfer: false,
+  incrementalLure: false,
 };
 export const TACTICAL_V3: BotPolicy = {
   id: "tactical-v3",
@@ -39,6 +43,7 @@ export const TACTICAL_V3: BotPolicy = {
   burnBase: 4,
   reactionConservation: 1.5,
   incrementalTransfer: false,
+  incrementalLure: false,
 };
 export const LIVE_BOT_POLICY: BotPolicy = TACTICAL_V3;
 
@@ -47,6 +52,8 @@ const SEPARATION_CARD_COST = 1;
 const SWAP_CARD_COST = 1;
 const SECRET_ORDER_CARD_COST = 4;
 const DECRYPT_REJECTION_BLACK_PROBABILITY = 0.7;
+const SECRET_ORDER_COLOR_EVIDENCE = 0.45;
+const DEFINITIVE_FACTION_EVIDENCE = 100;
 
 interface PublicObservation {
   auditLength: number;
@@ -62,6 +69,11 @@ interface PublicObservation {
     kind: ActiveFunctionKind;
     sourceId: string;
     targetId: string;
+  };
+  secretOrder?: {
+    signature: string;
+    sourceId: string;
+    requiredColor: SingleColor;
   };
   players: Record<string, {
     alive: boolean;
@@ -167,7 +179,16 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
         }
       }
     }
+
+    if (!projection.winner && projection.phase !== "resolvingReceipt" && player.alive) {
+      const counts = countIntelligence(player.intelligence);
+      if (counts.red >= 3) excludeFaction(evidence, "潜伏");
+      if (counts.blue >= 3) excludeFaction(evidence, "军情");
+      if (counts.physical >= 6) excludeFaction(evidence, "特工");
+    }
   }
+
+  observeDefinitivePublicTextInference(memory, projection);
 
   const priorTransmission = memory.previous?.transmission;
   const currentTransmission = transmissionObservation(projection);
@@ -215,6 +236,17 @@ export function observeBotProjection(memory: BotMemory, projection: PlayerProjec
     }
   }
 
+  const priorSecretOrder = memory.previous?.secretOrder;
+  const currentSecretOrder = secretOrderObservation(projection);
+  if (currentSecretOrder && currentSecretOrder.signature !== priorSecretOrder?.signature) {
+    const sourceEvidence = memory.evidence[currentSecretOrder.sourceId] ??= emptyBelief();
+    if (currentSecretOrder.requiredColor === "蓝") {
+      sourceEvidence.军情 += SECRET_ORDER_COLOR_EVIDENCE;
+    } else if (currentSecretOrder.requiredColor === "红") {
+      sourceEvidence.潜伏 += SECRET_ORDER_COLOR_EVIDENCE;
+    }
+  }
+
   memory.previous = snapshot(projection);
 }
 
@@ -247,6 +279,13 @@ export function factionBeliefs(memory: BotMemory, projection: PlayerProjection):
     0,
   );
   for (const playerId of hiddenIds) {
+    const possibleFactions = FACTIONS.filter((faction) =>
+      (memory.evidence[playerId]?.[faction] ?? 0) > -DEFINITIVE_FACTION_EVIDENCE
+    );
+    if (possibleFactions.length === 1) {
+      result[playerId] = oneHot(possibleFactions[0]!);
+      continue;
+    }
     const belief = emptyBelief();
     for (const entry of weightedAssignments) {
       belief[entry.assignment[playerId]!] += Math.exp(entry.logWeight - maxLogWeight) / normalizer;
@@ -282,9 +321,21 @@ function independentFactionBeliefs(memory: BotMemory, projection: PlayerProjecti
       continue;
     }
     const evidence = memory.evidence[player.id] ?? emptyBelief();
+    const possibleFactions = FACTIONS.filter((faction) =>
+      evidence[faction] > -DEFINITIVE_FACTION_EVIDENCE
+    );
+    if (possibleFactions.length === 1) {
+      result[player.id] = oneHot(possibleFactions[0]!);
+      continue;
+    }
     const weighted = Object.fromEntries(FACTIONS.map((faction) => {
       const prior = Math.max(0, (totals[faction] - revealed[faction]) / Math.max(1, hiddenCount));
-      return [faction, prior * Math.exp(Math.max(-8, Math.min(8, evidence[faction])))];
+      return [
+        faction,
+        evidence[faction] <= -DEFINITIVE_FACTION_EVIDENCE
+          ? 0
+          : prior * Math.exp(Math.max(-8, Math.min(8, evidence[faction]))),
+      ];
     })) as unknown as FactionBelief;
     const sum = FACTIONS.reduce((total, faction) => total + weighted[faction], 0);
     result[player.id] = Object.fromEntries(
@@ -314,6 +365,7 @@ function enumerateFactionAssignments(
   const playerId = playerIds[index]!;
   for (const faction of FACTIONS) {
     if (remaining[faction] <= 0) continue;
+    if ((memory.evidence[playerId]?.[faction] ?? 0) <= -DEFINITIVE_FACTION_EVIDENCE) continue;
     assignment[playerId] = faction;
     remaining[faction] -= 1;
     enumerateFactionAssignments(playerIds, index + 1, remaining, assignment, memory, output);
@@ -518,8 +570,27 @@ function scoreAction(
       return decision(command, 17, "gain cards");
     case "PLAY_CONFIDENTIAL_FILE":
       return decision(command, 22, "gain cards from developed board");
-    case "PLAY_LURE":
-      return decision(command, 11, "deny current recipient");
+    case "PLAY_LURE": {
+      if (!policy.incrementalLure) return decision(command, 11, "deny current recipient");
+      const currentTargetId = projection.transmission?.intendedRecipientId;
+      const nextTargetId = nextRecipientAfterDecline(projection);
+      const improvement = currentTransmissionReceiptUtility(
+        nextTargetId,
+        projection,
+        beliefs,
+        inferredBlackProbability,
+      ) - currentTransmissionReceiptUtility(
+        currentTargetId,
+        projection,
+        beliefs,
+        inferredBlackProbability,
+      );
+      return decision(
+        command,
+        PASS_REACTION_SCORE + improvement - 1,
+        "force a decline only when the next recipient improves the tactical outcome",
+      );
+    }
     case "CHOOSE_PROBE_IDENTITY":
       return decision(command, action.choice === "giveRandom" && projection.own.hand.length > 2 ? 9 : 7, "limit revealed identity information");
     case "CHOOSE_PUBLIC_TEXT_EFFECT":
@@ -579,6 +650,21 @@ function reactionDecisionTarget(action: LegalAction, projection: PlayerProjectio
   if (action.type === "PLAY_INTERCEPT") return projection.own.id;
   if (action.type === "PLAY_COUNTER") return projection.responseStack.at(-1)?.targetPlayerId;
   return projection.transmission?.intendedRecipientId;
+}
+
+function nextRecipientAfterDecline(projection: PlayerProjection): string | undefined {
+  const transmission = projection.transmission;
+  if (!transmission) return undefined;
+  if (transmission.method === "直达") return transmission.senderId;
+  const currentIndex = projection.seatOrder.indexOf(transmission.intendedRecipientId);
+  if (currentIndex < 0) return undefined;
+  const step = transmission.direction === "counterclockwise" ? -1 : 1;
+  for (let offset = 1; offset <= projection.seatOrder.length; offset += 1) {
+    const index = (currentIndex + step * offset + projection.seatOrder.length) % projection.seatOrder.length;
+    const playerId = projection.seatOrder[index]!;
+    if (projection.players.find((player) => player.id === playerId)?.alive) return playerId;
+  }
+  return undefined;
 }
 
 function synthesizeTransmission(
@@ -996,6 +1082,7 @@ function snapshot(projection: PlayerProjection): PublicObservation {
     auditLength: projection.auditLog.length,
     transmission: transmissionObservation(projection),
     functionAction: functionObservation(projection),
+    secretOrder: secretOrderObservation(projection),
     players: Object.fromEntries(projection.players.map((player) => [player.id, {
       alive: player.alive,
       faction: player.faction,
@@ -1061,6 +1148,44 @@ function observeTransmissionInference(
   }
 }
 
+function observeDefinitivePublicTextInference(
+  memory: BotMemory,
+  projection: PlayerProjection,
+): void {
+  const pending = new Map<string, { color: SingleColor; optionalChoice: boolean }>();
+  for (const entry of projection.auditLog) {
+    const receipt = /^(.+)接收情报：「公开文本（(红|蓝|黑) ·/.exec(entry);
+    if (receipt?.[1] && receipt[2]) {
+      pending.set(receipt[1], {
+        color: receipt[2] as SingleColor,
+        optionalChoice: false,
+      });
+      continue;
+    }
+
+    const optionalChoice = /^(.+)须选择公开文本的摸牌或弃牌效果$/.exec(entry)?.[1];
+    if (optionalChoice) {
+      const current = pending.get(optionalChoice);
+      if (current) current.optionalChoice = true;
+      continue;
+    }
+
+    const forcedDiscard = [
+      /^(.+)须为公开文本选择一张手牌弃置$/,
+      /^(.+)因公开文本须弃牌，但其没有手牌$/,
+      /^(.+)因公开文本自动弃置唯一的手牌$/,
+      /^(.+)因公开文本弃置一张手牌$/,
+    ].map((pattern) => pattern.exec(entry)?.[1]).find(Boolean);
+    if (forcedDiscard) {
+      const current = pending.get(forcedDiscard);
+      if (current && !current.optionalChoice) {
+        if (current.color === "红") setCertainFaction(memory, forcedDiscard, "潜伏");
+        if (current.color === "蓝") setCertainFaction(memory, forcedDiscard, "军情");
+      }
+    }
+  }
+}
+
 function functionObservation(projection: PlayerProjection): PublicObservation["functionAction"] {
   const current = projection.activeFunctionAction;
   if (!current) return undefined;
@@ -1072,6 +1197,16 @@ function functionObservation(projection: PlayerProjection): PublicObservation["f
   };
 }
 
+function secretOrderObservation(projection: PlayerProjection): PublicObservation["secretOrder"] {
+  const current = projection.pendingSecretOrder;
+  if (!current?.sourcePlayerId || !current.requiredColor) return undefined;
+  return {
+    signature: [current.sourcePlayerId, current.targetPlayerId, current.word, current.requiredColor].join("|"),
+    sourceId: current.sourcePlayerId,
+    requiredColor: current.requiredColor,
+  };
+}
+
 function cardHelpsFaction(card: PhysicalCard, faction: Faction): boolean {
   if (faction === "特工") return card.color !== "黑";
   const desired = faction === "军情" ? "蓝" : "红";
@@ -1080,6 +1215,19 @@ function cardHelpsFaction(card: PhysicalCard, faction: Faction): boolean {
 
 function emptyBelief(): FactionBelief {
   return { 军情: 0, 潜伏: 0, 特工: 0 };
+}
+
+function excludeFaction(evidence: FactionBelief, faction: Faction): void {
+  evidence[faction] = Math.min(evidence[faction], -DEFINITIVE_FACTION_EVIDENCE);
+}
+
+function setCertainFaction(memory: BotMemory, playerId: string, faction: Faction): void {
+  const evidence = memory.evidence[playerId] ??= emptyBelief();
+  for (const candidate of FACTIONS) {
+    evidence[candidate] = candidate === faction
+      ? DEFINITIVE_FACTION_EVIDENCE
+      : -DEFINITIVE_FACTION_EVIDENCE;
+  }
 }
 
 function oneHot(faction: Faction): FactionBelief {

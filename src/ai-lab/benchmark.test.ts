@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runPairedTournament, runSelfPlayBenchmark, runSelfPlayGame } from "./benchmark";
-import { CANDIDATE_V7 } from "./policies";
+import { CANDIDATE_V7, CANDIDATE_V8 } from "./policies";
 import { LIVE_BOT_POLICY, TACTICAL_V2 } from "../server/bot/strategy";
 
 describe("AI self-play benchmark", () => {
@@ -37,7 +37,7 @@ describe("AI self-play benchmark", () => {
       );
       expect(firstLeg.participants.map((entry) => entry.policy)).toEqual(
         secondLeg.participants.map((entry) =>
-          entry.policy === CANDIDATE_V7.id ? LIVE_BOT_POLICY.id : CANDIDATE_V7.id
+          entry.policy === CANDIDATE_V8.id ? LIVE_BOT_POLICY.id : CANDIDATE_V8.id
         ),
       );
     }
