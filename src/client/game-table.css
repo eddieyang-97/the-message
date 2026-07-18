@@ -24,6 +24,7 @@
 .table-area { min-width:0; padding:10px 12px; }
 .player-ring { position:relative; height:clamp(380px,52vh,520px); }
 .table-player { position:absolute; left:50%; top:50%; width:142px; transform:rotate(calc(180deg + 360deg / var(--player-count) * var(--player-index))) translateY(clamp(-195px,-22vh,-165px)) rotate(calc(-180deg - 360deg / var(--player-count) * var(--player-index))) translate(-50%,-50%); }
+.table-player:has(> .player-chat-bubble) { z-index:3; }
 .table-player>button { width:100%; min-height:60px; padding:6px; color:inherit; background:#18372d; border:1px solid rgba(255,255,255,.22); border-radius:9px; }
 .table-player>button:enabled { border-color:#f1cb74; box-shadow:0 0 0 3px rgba(241,203,116,.25); }
 .table-player>button span,.table-player>button em { display:block; margin-top:3px; font-size:12px; }
