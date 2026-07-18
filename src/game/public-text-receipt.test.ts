@@ -138,6 +138,7 @@ describe("公开文本作为接收情报", () => {
     expect(state.auditLog).toContain(
       `乙因公开文本弃置一张手牌：「${discardedCard.name}（${discardedCard.color} · ${discardedCard.transmission}）」`,
     );
+    expect(state.auditLog).not.toContain("乙选择为公开文本弃置一张手牌");
     expect(state.pendingPublicTextReceipt).toBeUndefined();
     expect(state.activePlayerId).toBe("乙");
   });

@@ -245,8 +245,7 @@ describe("bot strategy", () => {
       auditLog: [
         "b接收情报：「公开文本（红 · 文本）」",
         "b须选择公开文本的摸牌或弃牌效果",
-        "b选择为公开文本弃置一张手牌",
-        "b因公开文本弃置一张手牌",
+        "b因公开文本弃置一张手牌：「锁定（红 · 直达）」",
       ],
     });
     expect(factionBeliefs(createBotMemory(optional), optional).b.潜伏).toBeLessThan(1);

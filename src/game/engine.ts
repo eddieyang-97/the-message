@@ -2715,7 +2715,6 @@ export function choosePublicTextReceiptEffect(
     }
     pending.stage = "discard";
     pending.choices = ["discardOne"];
-    state.auditLog.push(`${actorId}选择为公开文本弃置一张手牌`);
     assertGameStateInvariants(state);
     return;
   }
