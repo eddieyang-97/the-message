@@ -86,7 +86,7 @@ export function SpectatorTable({
                     className="player-reaction-trigger player-reaction-trigger--spectator"
                     data-reaction-source-player-id={id}
                   >
-                    友
+                    👤
                   </span>
                   <button disabled type="button">
                     <strong data-reaction-target-player-id={id}>

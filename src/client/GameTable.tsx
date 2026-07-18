@@ -983,7 +983,7 @@ export function GameTable({
                     title={isOwn ? "你的头像" : "点击送花或扔番茄"}
                     type="button"
                   >
-                    <span aria-hidden="true">{isOwn ? "我" : "友"}</span>
+                    <span aria-hidden="true">👤</span>
                   </button>
                   {reactionTargetId === id && !isOwn && (
                     <PlayerReactionMenu
