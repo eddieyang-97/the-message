@@ -54,9 +54,15 @@ export function PlayerReactionMenu({
   );
 }
 
-function playerCenter(playerId: string): { x: number; y: number } | undefined {
-  const element = [...document.querySelectorAll<HTMLElement>("[data-player-id]")]
-    .find((candidate) => candidate.dataset.playerId === playerId);
+function reactionEndpoint(
+  playerId: string,
+  endpoint: "source" | "target",
+): { x: number; y: number } | undefined {
+  const attribute = endpoint === "source"
+    ? "data-reaction-source-player-id"
+    : "data-reaction-target-player-id";
+  const element = [...document.querySelectorAll<HTMLElement>(`[${attribute}]`)]
+    .find((candidate) => candidate.getAttribute(attribute) === playerId);
   if (!element) return undefined;
   const bounds = element.getBoundingClientRect();
   return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
@@ -88,8 +94,8 @@ export function PlayerReactionLayer({
     const additions = events.flatMap((event) => {
       if (seenIds.current.has(event.id)) return [];
       seenIds.current.add(event.id);
-      const start = playerCenter(event.fromPlayerId);
-      const end = playerCenter(event.targetPlayerId);
+      const start = reactionEndpoint(event.fromPlayerId, "source");
+      const end = reactionEndpoint(event.targetPlayerId, "target");
       return start && end
         ? [{
             ...event,

@@ -84,12 +84,14 @@ export function SpectatorTable({
                   <span
                     aria-hidden="true"
                     className="player-reaction-trigger player-reaction-trigger--spectator"
-                    data-player-id={id}
+                    data-reaction-source-player-id={id}
                   >
                     友
                   </span>
                   <button disabled type="button">
-                    <strong>{playerDisplayNames[id] ?? id}</strong>
+                    <strong data-reaction-target-player-id={id}>
+                      {playerDisplayNames[id] ?? id}
+                    </strong>
                     <span>{player.alive ? `${player.handCount} 张手牌` : "已死亡"}</span>
                     {player.faction && <span className="faction-badge">{player.faction}</span>}
                   </button>

@@ -975,7 +975,7 @@ export function GameTable({
                     aria-expanded={reactionTargetId === id}
                     aria-label={isOwn ? "你的头像" : `与${playerDisplayNames[id] ?? id}互动`}
                     className="player-reaction-trigger"
-                    data-player-id={id}
+                    data-reaction-source-player-id={id}
                     disabled={isOwn || busy || !connected}
                     onClick={() => setReactionTargetId((current) =>
                       current === id ? undefined : id
@@ -1002,7 +1002,9 @@ export function GameTable({
                     />
                   )}
                   <button disabled={!isTarget || busy} onClick={() => chooseTarget(id)} type="button">
-                  <strong>{playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}</strong>
+                  <strong data-reaction-target-player-id={id}>
+                    {playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}
+                  </strong>
                     <span>{player.alive ? `${player.handCount} 张手牌` : "已死亡"}</span>
                     {player.faction && <span className="faction-badge">{player.faction}</span>}
                     {isTarget && <em>选择为目标</em>}

@@ -262,8 +262,9 @@ spectator messages remain in the chat panel and do not create table bubbles.
 
 Player reactions are transient room broadcasts. The server authenticates the
 sender, validates that the target is a different player in the current game,
-and broadcasts a generated event ID. Clients animate the reaction between the
-sender and target avatars; reactions are not retained, audited, or replayed.
+and broadcasts a generated event ID. Clients animate the reaction from the
+sender's avatar to the target's displayed name; reactions are not retained,
+audited, or replayed.
 
 ## Browser rendering
 
@@ -286,9 +287,9 @@ hold authoritative rule state; they render projections and submit members of
 the latest projection. Selection is cleared when its rule context changes. The
 dragged response-panel offset is local component state and is not reset by a new
 response window. Logs and inferred-identity markers are presentation state and
-do not affect the engine. The player-reaction layer measures avatar positions in
-the current layout, so the same flight and impact animations work in anchored
-desktop, mobile, and spectator views.
+do not affect the engine. The player-reaction layer measures the sender avatar
+and target-name positions in the current layout, so the same flight and impact
+animations work in anchored desktop, mobile, and spectator views.
 
 The desktop sidebar is a fixed two-row layout: public audit history above and
 match chat below, each receiving approximately half of the available viewport

@@ -637,7 +637,7 @@ A client must not receive:
 ### Player reactions
 
 - During a match, a seated human player may click any other player's avatar and send either a flower or a tomato; they cannot target themselves.
-- Flowers fly from the sender's avatar to the target. Tomatoes fly to the target and display a crash impact on the target avatar.
+- Flowers fly from the sender's avatar to the target's displayed name. Tomatoes follow the same path and display a crash impact on the target's name.
 - Dead seated players may still send reactions. Bots can receive them but do not send them. Spectators can see reactions but cannot send them.
 - Reactions are transient room broadcasts: they are not persisted, restored on reconnect, written to the public audit log, or included in replays.
 - Sending a reaction never advances, pauses, or otherwise changes the game engine state.
