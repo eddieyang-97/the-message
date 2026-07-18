@@ -75,6 +75,7 @@ This document is the authoritative record of confirmed gameplay rules and ruling
 - A function-card action or other voluntary action is illegal if it would leave the active player with no card to transmit.
 - The active player may play any number of legal function cards before starting transmission.
 - Once transmission begins, active-phase function cards are no longer legal; only actions legal in the current reaction window may be played.
+- Once transmission begins, the intelligence card is already committed, so the active player may spend their final hand card on an otherwise legal reaction, including 烧毁 or 识破.
 - On-receive intelligence effects are resolution steps, not active-phase function-card plays, and still resolve after acceptance.
 
 ---

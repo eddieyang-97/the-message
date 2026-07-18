@@ -1740,6 +1740,18 @@ function cardMatchesSecretOrder(card: PhysicalCard, color: SingleColor): boolean
   return card.color === color || (card.color === "红蓝" && color !== "黑");
 }
 
+function mustKeepFinalCardForTransmission(
+  state: GameState,
+  actorId: PlayerId,
+  handLength: number,
+): boolean {
+  return (
+    state.phase !== "transmitting" &&
+    actorId === state.activePlayerId &&
+    handLength <= 1
+  );
+}
+
 function requireActiveFunctionCard(
   state: GameState,
   actorId: PlayerId,
@@ -1935,7 +1947,7 @@ export function playSeparationOnFunction(
   if (!actor?.alive || cardIndex < 0 || cardById(cardId).name !== "离间") {
     throw new Error("必须使用自己手中的离间牌");
   }
-  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+  if (mustKeepFinalCardForTransmission(state, actorId, actor.hand.length)) {
     throw new Error("当前玩家必须至少保留一张手牌用于传递");
   }
   if (
@@ -3107,7 +3119,7 @@ export function playBurn(
   if (!actor?.alive || cardIndex < 0 || cardById(cardId).name !== "烧毁") {
     throw new Error("必须使用自己手中的烧毁牌");
   }
-  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+  if (mustKeepFinalCardForTransmission(state, actorId, actor.hand.length)) {
     throw new Error("当前玩家必须至少保留一张手牌用于传递");
   }
   const target = state.players[targetPlayerId];
@@ -3205,7 +3217,7 @@ function playCounterOnBurn(
   if (!actor?.alive || cardIndex < 0 || cardById(cardId).name !== "识破") {
     throw new Error("必须使用自己手中的识破牌");
   }
-  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+  if (mustKeepFinalCardForTransmission(state, actorId, actor.hand.length)) {
     throw new Error("当前玩家必须至少保留一张手牌用于传递");
   }
   if (target.sourcePlayerId === actorId) throw new Error("不能识破自己的卡牌行动");
@@ -3423,7 +3435,7 @@ function playCounterOnSecretOrder(
     throw new Error("必须使用自己手中的识破牌");
   }
   if (target.sourcePlayerId === actorId) throw new Error("不能识破自己的卡牌行动");
-  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+  if (mustKeepFinalCardForTransmission(state, actorId, actor.hand.length)) {
     throw new Error("当前玩家必须至少保留一张手牌用于传递");
   }
   const before = { countered: pending.countered };
@@ -3476,7 +3488,7 @@ function playCounterOnFunction(
   if (!actor?.alive || cardIndex < 0 || cardById(cardId).name !== "识破") {
     throw new Error("必须使用自己手中的识破牌");
   }
-  if (actorId === state.activePlayerId && actor.hand.length <= 1) {
+  if (mustKeepFinalCardForTransmission(state, actorId, actor.hand.length)) {
     throw new Error("当前玩家必须至少保留一张手牌用于传递");
   }
   if (target.sourcePlayerId === actorId) {
@@ -3738,6 +3750,8 @@ export function projectGameForPlayer(
           },
     );
   }
+  const viewerMustKeepFinalCardForTransmission =
+    mustKeepFinalCardForTransmission(state, viewerId, viewer.hand.length);
   const canViewerBurn =
     viewer.alive &&
     !isBurnAtRiskFromPendingHandEffect(state, viewerId) &&
@@ -3746,7 +3760,7 @@ export function projectGameForPlayer(
         state.activePlayerId === viewerId &&
         !state.reactionWindow &&
         !activeFunctionAction)) &&
-    !(viewerId === state.activePlayerId && viewer.hand.length <= 1);
+    !viewerMustKeepFinalCardForTransmission;
   const burnActions: PlayerProjection["legalActions"] = canViewerBurn
     ? viewer.hand
         .filter((cardId) => cardById(cardId).name === "烧毁")
@@ -3865,7 +3879,8 @@ export function projectGameForPlayer(
   const counterActions =
     currentReactionResponderId === viewerId &&
     topInteraction &&
-    topInteraction.sourcePlayerId !== viewerId
+    topInteraction.sourcePlayerId !== viewerId &&
+    !viewerMustKeepFinalCardForTransmission
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "识破")
           .map((cardId) => ({
@@ -3876,6 +3891,7 @@ export function projectGameForPlayer(
       : [];
   const functionSeparationActions =
     currentReactionResponderId === viewerId &&
+    !viewerMustKeepFinalCardForTransmission &&
     state.reactionWindow?.kind === "function" &&
     activeFunctionAction &&
     state.activeFunctionStack.at(-1)?.kind === "function" &&

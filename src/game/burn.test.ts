@@ -64,6 +64,26 @@ function inHand(state: GameState, playerId: string, wanted: PhysicalCardId): voi
   state.drawPile[drawIndex] = replacement;
 }
 
+function setExactHand(
+  state: GameState,
+  playerId: string,
+  wanted: readonly PhysicalCardId[],
+): void {
+  for (const cardId of wanted) {
+    const owner = Object.values(state.players).find((player) =>
+      player.hand.includes(cardId),
+    );
+    if (owner) owner.hand.splice(owner.hand.indexOf(cardId), 1);
+    else {
+      const drawIndex = state.drawPile.indexOf(cardId);
+      if (drawIndex < 0) throw new Error("测试牌不在手牌或牌库中");
+      state.drawPile.splice(drawIndex, 1);
+    }
+  }
+  state.drawPile.push(...state.players[playerId].hand.splice(0));
+  state.players[playerId].hand.push(...wanted);
+}
+
 function acceptedBy(state: GameState, playerId: string, wanted: PhysicalCardId): void {
   const drawIndex = state.drawPile.indexOf(wanted);
   if (drawIndex >= 0) state.drawPile.splice(drawIndex, 1);
@@ -93,6 +113,93 @@ function ordinaryBlack(excluded: readonly PhysicalCardId[] = []): PhysicalCardId
 }
 
 describe("烧毁", () => {
+  it("传递开始前仍禁止行动玩家用掉最后一张烧毁", () => {
+    const state = game(713);
+    const burn = findCard((card) => card.name === "烧毁");
+    const intelligence = ordinaryBlack([burn]);
+    setExactHand(state, "甲", [burn]);
+    acceptedBy(state, "乙", intelligence);
+
+    expect(projectGameForPlayer(state, "甲").legalActions).not.toContainEqual(
+      expect.objectContaining({ type: "PLAY_BURN", cardId: burn }),
+    );
+    expect(() => playBurn(state, "甲", burn, "乙", intelligence)).toThrow(
+      "必须至少保留一张手牌用于传递",
+    );
+  });
+
+  it("传递开始后允许行动玩家使用最后一张烧毁", () => {
+    const state = game(714);
+    const transmitted = findCard(
+      (card) => card.transmission === "直达" && card.name !== "烧毁",
+    );
+    const burn = findCard((card) => card.name === "烧毁", [transmitted]);
+    const intelligence = ordinaryBlack([transmitted, burn]);
+    setExactHand(state, "甲", [transmitted, burn]);
+    acceptedBy(state, "丁", intelligence);
+    enterTransmissionPhase(state, "甲");
+    passCurrentWindow(state);
+    startTransmission(state, "甲", transmitted, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    while (
+      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex] !== "甲"
+    ) {
+      const window = state.reactionWindow;
+      if (!window) throw new Error("情报响应窗口提前结束");
+      passReaction(state, window.responderOrder[window.nextResponderIndex]);
+    }
+
+    expect(state.players["甲"].hand).toEqual([burn]);
+    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+      type: "PLAY_BURN",
+      cardId: burn,
+      targetPlayerId: "丁",
+      targetIntelligenceCardId: intelligence,
+    });
+    playBurn(state, "甲", burn, "丁", intelligence);
+
+    expect(state.players["甲"].hand).toEqual([]);
+    expect(state.reactionWindow?.kind).toBe("burn");
+  });
+
+  it("传递开始后允许行动玩家在烧毁链中使用最后一张识破", () => {
+    const state = game(715);
+    const transmitted = findCard(
+      (card) => card.transmission === "直达",
+    );
+    const counter = findCard((card) => card.name === "识破", [transmitted]);
+    const burn = findCard((card) => card.name === "烧毁", [transmitted, counter]);
+    const intelligence = ordinaryBlack([transmitted, counter, burn]);
+    setExactHand(state, "甲", [transmitted, counter]);
+    setExactHand(state, "丙", [burn]);
+    acceptedBy(state, "丁", intelligence);
+    enterTransmissionPhase(state, "甲");
+    passCurrentWindow(state);
+    startTransmission(state, "甲", transmitted, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+
+    expect(
+      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex],
+    ).toBe("丙");
+    playBurn(state, "丙", burn, "丁", intelligence);
+    expect(
+      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex],
+    ).toBe("戊");
+    passReaction(state, "戊");
+    const burnFrame = state.burnContexts.at(-1)!.frames.at(-1)!;
+
+    expect(state.players["甲"].hand).toEqual([counter]);
+    expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
+      type: "PLAY_COUNTER",
+      cardId: counter,
+      targetInteractionId: burnFrame.id,
+    });
+    playCounter(state, "甲", counter, burnFrame.id);
+
+    expect(state.players["甲"].hand).toEqual([]);
+    expect(state.burnContexts.at(-1)?.countered).toBe(true);
+  });
+
   it("在行动阶段烧毁存活玩家可烧毁的已接收黑色情报", () => {
     const state = game();
     const burn = findCard((card) => card.name === "烧毁");
