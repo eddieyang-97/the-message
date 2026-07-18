@@ -910,6 +910,56 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     });
   });
 
+  it("调虎离山被识破后重新开始完整情报响应，原出牌者可再次使用调虎离山", () => {
+    const state = initializedWithActive(players, 761);
+    const intelligence = cardIdWhere((card) => card.transmission === "直达");
+    const firstLure = cardIdWhere((card) => card.name === "调虎离山", [
+      intelligence,
+    ]);
+    const counter = cardIdWhere((card) => card.name === "识破", [
+      intelligence,
+      firstLure,
+    ]);
+    const secondLure = cardIdWhere((card) => card.name === "调虎离山", [
+      intelligence,
+      firstLure,
+      counter,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "丙", firstLure, 0);
+    putCardInHand(state, "丙", secondLure, 1);
+    putCardInHand(state, "丁", counter, 0);
+
+    startTransmission(state, "甲", intelligence, { targetId: "乙" });
+    passLockOpportunity(state, "甲");
+    playLure(state, "丙", firstLure);
+    passReaction(state, "丙");
+    playCounter(
+      state,
+      "丁",
+      counter,
+      state.interactionStack.at(-1)!.id,
+    );
+    finishCurrentReactionWindow(state);
+
+    expect(state.reactionWindow).toMatchObject({
+      kind: "intelligence",
+      affectedPlayerId: "乙",
+      responderOrder: ["丙", "丁", "戊", "甲", "乙"],
+      nextResponderIndex: 0,
+    });
+    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
+      type: "PLAY_LURE",
+      cardId: secondLure,
+    });
+
+    playLure(state, "丙", secondLure);
+    expect(state.transmission?.pendingLure).toMatchObject({
+      sourceCardId: secondLure,
+      targetId: "乙",
+    });
+  });
+
   it("锁定或截获承诺存在时禁止调虎离山", () => {
     const lockedState = initializedWithActive(players, 78);
     const lockedIntelligence = cardIdWhere((card) => card.transmission === "直达");

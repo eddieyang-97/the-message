@@ -268,7 +268,7 @@ Implementation note:
 - It is illegal when 锁定 requires the intended recipient to accept.
 - It is illegal against a successful interceptor because 截获 commits the interceptor to accepting.
 - It is illegal when the current recipient is already committed to acceptance by a returned or transferred intelligence; that recipient must accept unless using an unlocked 转移.
-- 识破 may counter 调虎离山 and restores the exact pending receipt decision.
+- 识破 may counter 调虎离山 and restarts a complete intelligence reaction round for the same pending recipient. Every eligible player, including the player whose 调虎离山 was countered, may respond again and may play another 调虎离山.
 - 离间 cannot redirect 调虎离山.
 - It does not alter turn order or seat eligibility. If the intelligence continues to a new recipient, that player begins a normal receipt cycle.
 

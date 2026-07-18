@@ -2928,7 +2928,7 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
       } else {
         state.reactionWindow = undefined;
         state.interactionStack = [];
-        if (state.transmission) state.transmission.receiptStage = "decision";
+        beginReceiptReactionStage(state);
         assertGameStateInvariants(state);
       }
     } else if (window.kind === "lock") {
