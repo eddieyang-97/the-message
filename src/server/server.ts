@@ -5,6 +5,7 @@ import express, { type Express } from "express";
 import { Server } from "socket.io";
 
 import { RoomError, RoomService, type StartRoomResult } from "../room";
+import { isPlayerReactionKind, type PlayerReactionEvent } from "../social-reactions";
 import { BotRunner, type BotRunnerClock } from "./bot/runner";
 import { GameSessionError, GameSessionService } from "./game-session";
 import {
@@ -96,6 +97,7 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
   }
 
   const playerSockets = new Map<string, string>();
+  let nextPlayerReactionSequence = 1;
 
   async function broadcastRoom(roomCode: string): Promise<void> {
     if (!roomService.hasRoom(roomCode)) return;
@@ -630,6 +632,42 @@ export function createGameServer(options: CreateGameServerOptions = {}): GameSer
         await broadcastGame(identity.roomCode);
         reactionTimeoutScheduler.reconcile(identity.roomCode);
         botRunner.reconcile(identity.roomCode);
+      } catch (error) {
+        acknowledge(failure(error));
+      }
+    });
+
+    socket.on("game:player-reaction", (request, acknowledge) => {
+      try {
+        const identity = requireIdentity();
+        if (socket.data.isSpectator) {
+          throw new TransportFailure("NOT_A_GAME_PLAYER", "旁观者不能发送玩家互动");
+        }
+        const game = gameSessionService.getState(identity.roomCode);
+        if (!game.players[identity.playerId]) {
+          throw new TransportFailure("NOT_A_GAME_PLAYER", "当前玩家不属于这局游戏");
+        }
+        if (
+          typeof request?.targetPlayerId !== "string" ||
+          !game.players[request.targetPlayerId]
+        ) {
+          throw new TransportFailure("INVALID_REACTION_TARGET", "互动目标不属于这局游戏");
+        }
+        if (request.targetPlayerId === identity.playerId) {
+          throw new TransportFailure("INVALID_REACTION_TARGET", "不能向自己发送互动");
+        }
+        if (!isPlayerReactionKind(request.kind)) {
+          throw new TransportFailure("INVALID_PLAYER_REACTION", "不支持的玩家互动");
+        }
+        const event: PlayerReactionEvent = {
+          id: `player-reaction-${nextPlayerReactionSequence}`,
+          kind: request.kind,
+          fromPlayerId: identity.playerId,
+          targetPlayerId: request.targetPlayerId,
+        };
+        nextPlayerReactionSequence += 1;
+        acknowledge({ ok: true, data: event });
+        io.to(identity.roomCode).emit("game:player-reaction", event);
       } catch (error) {
         acknowledge(failure(error));
       }

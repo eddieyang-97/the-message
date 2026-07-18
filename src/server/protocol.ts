@@ -8,6 +8,7 @@ import type {
 import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { GameCommand } from "./game-session";
 import type { ReactionTimerSnapshot } from "./reaction-timeout";
+import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
 
 export interface TransportError {
   code: string;
@@ -118,6 +119,10 @@ export interface ClientToServerEvents {
     request: { command: GameCommand },
     acknowledge: Acknowledge<PlayerProjection>,
   ) => void;
+  "game:player-reaction": (
+    request: { kind: PlayerReactionKind; targetPlayerId: string },
+    acknowledge: Acknowledge<PlayerReactionEvent>,
+  ) => void;
 }
 
 export interface ServerToClientEvents {
@@ -130,6 +135,7 @@ export interface ServerToClientEvents {
   "game:snapshot": (game: PlayerProjection) => void;
   "game:spectator-snapshot": (game: SpectatorProjection) => void;
   "game:reaction-timer": (timer: ReactionTimerSnapshot | null) => void;
+  "game:player-reaction": (event: PlayerReactionEvent) => void;
 }
 
 export interface InterServerEvents {}

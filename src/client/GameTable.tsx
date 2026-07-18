@@ -4,8 +4,10 @@ import type { Faction, PhysicalCard, PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
 import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
+import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
+import { PlayerReactionLayer, PlayerReactionMenu } from "./PlayerReactionLayer";
 import {
   AUTO_PASS_DELAY_OPTIONS_MS,
   REACTION_TIMEOUT_OPTIONS,
@@ -32,6 +34,7 @@ export interface GameTableProps {
   autoPassDelayMs: AutoPassDelayMs;
   publicAuditEvents?: readonly PublicAuditEvent[];
   chatMessages?: readonly ChatMessageSnapshot[];
+  playerReactions?: readonly PlayerReactionEvent[];
   spectators?: readonly { id: string; displayName: string; connected: boolean }[];
   disconnectedLivingPlayers?: readonly {
     id: string;
@@ -44,6 +47,7 @@ export interface GameTableProps {
   onSetBotTakeover: (playerId: string, enabled: boolean) => void;
   onNewGame: () => void;
   onSendChat: (text: string) => void;
+  onPlayerReaction: (kind: PlayerReactionKind, targetPlayerId: string) => void;
   onCommand: (command: GameCommand) => void;
 }
 
@@ -695,6 +699,7 @@ export function GameTable({
   autoPassDelayMs,
   publicAuditEvents = [],
   chatMessages = [],
+  playerReactions = [],
   spectators = [],
   disconnectedLivingPlayers = [],
   onReactionTimeoutChange,
@@ -703,6 +708,7 @@ export function GameTable({
   onSetBotTakeover,
   onNewGame,
   onSendChat,
+  onPlayerReaction,
   onCommand,
 }: GameTableProps) {
   const [selectedCardId, setSelectedCardId] = useState<string>();
@@ -717,6 +723,7 @@ export function GameTable({
   const [responsePanelOffset, setResponsePanelOffset] = useState({ x: 0, y: 0 });
   const [auditPlayerFilter, setAuditPlayerFilter] = useState("");
   const [identityMarkers, setIdentityMarkers] = useState<Record<string, Faction>>({});
+  const [reactionTargetId, setReactionTargetId] = useState<string>();
   const auditLogRef = useRef<HTMLOListElement>(null);
   const auditLogFollowsLatest = useRef(true);
   const chatBubbles = usePlayerChatBubbles(chatMessages);
@@ -964,6 +971,36 @@ export function GameTable({
                   style={{ "--player-index": index, "--player-count": displaySeatOrder.length } as React.CSSProperties}
                 >
                   <PlayerChatBubble message={chatBubbles[id]} />
+                  <button
+                    aria-expanded={reactionTargetId === id}
+                    aria-label={isOwn ? "你的头像" : `与${playerDisplayNames[id] ?? id}互动`}
+                    className="player-reaction-trigger"
+                    data-player-id={id}
+                    disabled={isOwn || busy || !connected}
+                    onClick={() => setReactionTargetId((current) =>
+                      current === id ? undefined : id
+                    )}
+                    title={isOwn ? "你的头像" : "点击送花或扔番茄"}
+                    type="button"
+                  >
+                    <span aria-hidden="true">{isOwn ? "我" : "友"}</span>
+                  </button>
+                  {reactionTargetId === id && !isOwn && (
+                    <PlayerReactionMenu
+                      canChooseGameTarget={isTarget}
+                      disabled={busy || !connected}
+                      onChooseGameTarget={() => {
+                        setReactionTargetId(undefined);
+                        chooseTarget(id);
+                      }}
+                      onClose={() => setReactionTargetId(undefined)}
+                      onReact={(kind) => {
+                        setReactionTargetId(undefined);
+                        onPlayerReaction(kind, id);
+                      }}
+                      targetName={playerDisplayNames[id] ?? id}
+                    />
+                  )}
                   <button disabled={!isTarget || busy} onClick={() => chooseTarget(id)} type="button">
                   <strong>{playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}</strong>
                     <span>{player.alive ? `${player.handCount} 张手牌` : "已死亡"}</span>
@@ -1217,6 +1254,7 @@ export function GameTable({
         <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
       )}
       {detailCard && <CardDetailDialog card={detailCard} onClose={() => setDetailCard(undefined)} />}
+      <PlayerReactionLayer events={playerReactions} playerDisplayNames={playerDisplayNames} />
     </main>
   );
 }

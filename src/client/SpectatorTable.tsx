@@ -3,9 +3,11 @@ import { useState } from "react";
 import type { PhysicalCard } from "../game/cards";
 import type { SpectatorProjection } from "../game/engine";
 import type { ChatMessageSnapshot, PublicAuditEvent } from "../room";
+import type { PlayerReactionEvent } from "../social-reactions";
 import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { formatAuditEntries, mergeAuditLogs, publicCardSummary } from "./GameTable";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
+import { PlayerReactionLayer } from "./PlayerReactionLayer";
 import "./game-table.css";
 
 export interface SpectatorTableProps {
@@ -14,6 +16,7 @@ export interface SpectatorTableProps {
   spectators: readonly { id: string; displayName: string; connected: boolean }[];
   publicAuditEvents: readonly PublicAuditEvent[];
   chatMessages: readonly ChatMessageSnapshot[];
+  playerReactions: readonly PlayerReactionEvent[];
   connected: boolean;
   onLeave: () => void;
   onSendChat: (text: string) => void;
@@ -43,6 +46,7 @@ export function SpectatorTable({
   spectators,
   publicAuditEvents,
   chatMessages,
+  playerReactions,
   connected,
   onLeave,
   onSendChat,
@@ -77,6 +81,13 @@ export function SpectatorTable({
                   style={{ "--player-index": index, "--player-count": projection.seatOrder.length } as React.CSSProperties}
                 >
                   <PlayerChatBubble message={chatBubbles[id]} />
+                  <span
+                    aria-hidden="true"
+                    className="player-reaction-trigger player-reaction-trigger--spectator"
+                    data-player-id={id}
+                  >
+                    友
+                  </span>
                   <button disabled type="button">
                     <strong>{playerDisplayNames[id] ?? id}</strong>
                     <span>{player.alive ? `${player.handCount} 张手牌` : "已死亡"}</span>
@@ -121,6 +132,7 @@ export function SpectatorTable({
       {discardPileOpen && (
         <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
       )}
+      <PlayerReactionLayer events={playerReactions} playerDisplayNames={playerDisplayNames} />
     </main>
   );
 }

@@ -125,7 +125,9 @@ events. Commands use acknowledgement envelopes:
 
 Room events cover creation, join, spectating, reconnect, leave, seats, host
 actions, bots, settings, game start, new game, and player chat. Gameplay uses one
-`game:command` event carrying the `GameCommand` union.
+`game:command` event carrying the `GameCommand` union. Ephemeral flower and
+tomato interactions use the separate `game:player-reaction` event and never
+enter authoritative game state.
 
 Server pushes include:
 
@@ -134,6 +136,7 @@ Server pushes include:
 - player-specific `game:snapshot`;
 - public-only `game:spectator-snapshot`;
 - `game:reaction-timer`;
+- `game:player-reaction` room broadcasts;
 - removal notification.
 
 The Socket.IO room code is the broadcast group. The server iterates connected
@@ -257,6 +260,11 @@ Browser clients render newly received player messages beside the sender for
 five seconds without storing that transient bubble state on the server;
 spectator messages remain in the chat panel and do not create table bubbles.
 
+Player reactions are transient room broadcasts. The server authenticates the
+sender, validates that the target is a different player in the current game,
+and broadcasts a generated event ID. Clients animate the reaction between the
+sender and target avatars; reactions are not retained, audited, or replayed.
+
 ## Browser rendering
 
 `App` is the top-level client state coordinator. It owns the current invite,
@@ -278,7 +286,9 @@ hold authoritative rule state; they render projections and submit members of
 the latest projection. Selection is cleared when its rule context changes. The
 dragged response-panel offset is local component state and is not reset by a new
 response window. Logs and inferred-identity markers are presentation state and
-do not affect the engine.
+do not affect the engine. The player-reaction layer measures avatar positions in
+the current layout, so the same flight and impact animations work in anchored
+desktop, mobile, and spectator views.
 
 The desktop sidebar is a fixed two-row layout: public audit history above and
 match chat below, each receiving approximately half of the available viewport

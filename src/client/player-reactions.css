@@ -1,0 +1,162 @@
+.player-reaction-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.table-player > .player-reaction-trigger {
+  position: absolute;
+  left: -13px;
+  top: 14px;
+  z-index: 10;
+  display: grid;
+  width: 32px;
+  min-height: 32px;
+  place-items: center;
+  padding: 0;
+  color: #49391f;
+  background: linear-gradient(#ffe9aa, #d5ad57);
+  border: 2px solid #fff1c4;
+  border-radius: 50%;
+  box-shadow: 0 3px 9px rgba(0, 0, 0, .4);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.table-player > .player-reaction-trigger:hover:not(:disabled),
+.table-player > .player-reaction-trigger[aria-expanded="true"] {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 3px rgba(255, 220, 126, .35), 0 3px 9px rgba(0, 0, 0, .4);
+}
+
+.table-player > .player-reaction-trigger:disabled,
+.table-player > .player-reaction-trigger--spectator {
+  cursor: default;
+  opacity: .78;
+}
+
+.player-reaction-menu {
+  position: absolute;
+  left: 50%;
+  top: 64px;
+  z-index: 12;
+  display: grid;
+  width: 116px;
+  gap: 4px;
+  padding: 6px;
+  transform: translateX(-50%);
+  color: #2c2418;
+  background: #fff6df;
+  border: 1px solid #c8a85e;
+  border-radius: 8px;
+  box-shadow: 0 7px 20px rgba(0, 0, 0, .38);
+}
+
+.player-reaction-menu button {
+  min-height: 30px;
+  padding: 4px 7px;
+  color: #2c2418;
+  background: #f6e7bd;
+  border: 1px solid #d2bb7f;
+  border-radius: 5px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.player-reaction-menu button:hover:not(:disabled) { background: #ffe6a1; }
+.player-reaction-menu button:disabled { opacity: .5; cursor: default; }
+.player-reaction-menu .player-reaction-menu__close { color: #6b6256; background: transparent; border-color: transparent; }
+
+.player-reaction,
+.player-reaction__projectile,
+.player-reaction__impact {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.player-reaction__projectile {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  margin: -21px 0 0 -21px;
+  font-size: 34px;
+  filter: drop-shadow(0 4px 5px rgba(0, 0, 0, .38));
+  will-change: transform, opacity;
+}
+
+.player-reaction--flower .player-reaction__projectile {
+  animation: flower-flight 1.15s cubic-bezier(.18, .72, .2, 1) forwards;
+}
+
+.player-reaction--tomato .player-reaction__projectile {
+  animation: tomato-flight .72s cubic-bezier(.22, .62, .35, 1) forwards;
+}
+
+.player-reaction__impact {
+  display: grid;
+  width: 70px;
+  height: 70px;
+  place-items: center;
+  margin: -35px 0 0 -35px;
+  opacity: 0;
+  font-size: 48px;
+  transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(.2);
+}
+
+.player-reaction--flower .player-reaction__impact {
+  animation: flower-bloom .72s .78s ease-out forwards;
+}
+
+.player-reaction--tomato .player-reaction__impact {
+  animation: tomato-splat .62s .61s ease-out forwards;
+}
+
+@keyframes flower-flight {
+  0% {
+    opacity: 0;
+    transform: translate(var(--reaction-start-x), var(--reaction-start-y)) rotate(-25deg) scale(.6);
+  }
+  12% { opacity: 1; }
+  55% { transform: translate(var(--reaction-control-x), var(--reaction-control-y)) rotate(12deg) scale(1.18); }
+  82% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(var(--reaction-end-x), var(--reaction-end-y)) rotate(28deg) scale(.9);
+  }
+}
+
+@keyframes tomato-flight {
+  0% {
+    opacity: 1;
+    transform: translate(var(--reaction-start-x), var(--reaction-start-y)) rotate(0) scale(.7);
+  }
+  52% { transform: translate(var(--reaction-control-x), var(--reaction-control-y)) rotate(390deg) scale(1.05); }
+  88% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(var(--reaction-end-x), var(--reaction-end-y)) rotate(720deg) scale(1.28);
+  }
+}
+
+@keyframes flower-bloom {
+  0% { opacity: 0; transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(.2) rotate(-15deg); }
+  35% { opacity: 1; transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(1.18) rotate(8deg); }
+  100% { opacity: 0; transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(.85) rotate(18deg); }
+}
+
+@keyframes tomato-splat {
+  0% { opacity: 0; transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(.2); }
+  28% { opacity: 1; transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(1.35); }
+  70% { opacity: 1; transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(1); }
+  100% { opacity: 0; transform: translate(var(--reaction-end-x), var(--reaction-end-y)) scale(.82); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-reaction__projectile { display: none; }
+  .player-reaction__impact { animation-delay: 0s; animation-duration: .9s; }
+}

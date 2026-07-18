@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { RoomEntryResult, RoomSnapshot } from "../room";
 import type { GameCommand, ReactionTimerSnapshot } from "../server";
+import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
 import { GameTable } from "./GameTable";
 import { LandingPage } from "./LandingPage";
 import {
@@ -98,6 +99,7 @@ export function App() {
   const [connected, setConnected] = useState(true);
   const [reactionTimer, setReactionTimer] = useState<ReactionTimerSnapshot | null>(null);
   const [autoPassDelayMs, setAutoPassDelayMs] = useState(loadAutoPassDelayPreference);
+  const [playerReactions, setPlayerReactions] = useState<PlayerReactionEvent[]>([]);
 
   const updateAutoPassDelay = useCallback((milliseconds: AutoPassDelayMs) => {
     setAutoPassDelayMs(milliseconds);
@@ -113,6 +115,7 @@ export function App() {
     saveCredentials(entry.room.code, nextCredentials);
     setCredentials(nextCredentials);
     setRoom(entry.room);
+    setPlayerReactions([]);
     if (entry.room.phase === "lobby") {
       setGame(undefined);
       setSpectatorGame(undefined);
@@ -160,6 +163,9 @@ export function App() {
   useEffect(() => client.onGameSnapshot(setGame), []);
   useEffect(() => client.onSpectatorSnapshot(setSpectatorGame), []);
   useEffect(() => client.onReactionTimer(setReactionTimer), []);
+  useEffect(() => client.onPlayerReaction((event) => {
+    setPlayerReactions((current) => [...current, event].slice(-20));
+  }), []);
   useEffect(() => client.onDisconnect(() => setConnected(false)), []);
 
   useEffect(() => client.onConnect(() => {
@@ -254,6 +260,7 @@ export function App() {
         ])}
         projection={spectatorGame}
         publicAuditEvents={room.publicAuditEvents}
+        playerReactions={playerReactions}
         spectators={room.spectators}
       />
     );
@@ -277,6 +284,7 @@ export function App() {
           const updated = await client.sendGameCommand(command);
           setGame(updated);
         })}
+        playerReactions={playerReactions}
         projection={game}
         playerDisplayNames={Object.fromEntries([
           ...room.players.map((player) => [
@@ -306,6 +314,10 @@ export function App() {
           () => client.setBotTakeover({ targetPlayerId, enabled }),
         )}
         onNewGame={() => void runAction("new-game", () => client.returnToLobby())}
+        onPlayerReaction={(kind: PlayerReactionKind, targetPlayerId: string) => {
+          void runAction("player-reaction", () =>
+            client.sendPlayerReaction({ kind, targetPlayerId }));
+        }}
         onSendChat={(text) => void runAction(
           "chat",
           () => client.sendChatMessage({ text }),
