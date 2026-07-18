@@ -154,6 +154,7 @@ export interface CardActionFrame {
   targetPlayerId: PlayerId;
   targetInteractionId?: string;
   snapshot: ReversibleInteractionSnapshot;
+  resumeReactionWindow?: ReactionWindow;
   /** Compatibility aliases for older intercept-focused consumers. */
   previousRecipientId: PlayerId;
   previousReturnedToSender: boolean;
@@ -2473,6 +2474,7 @@ export function playLure(
     sourceCardId: cardId,
     targetPlayerId: transmission.intendedRecipientId,
     snapshot: captureInteractionSnapshot(transmission),
+    resumeReactionWindow: cloneReactionWindow(window),
   });
   transmission.pendingLure = {
     sourceCardId: cardId,
@@ -2926,9 +2928,16 @@ function finishPassedReactionWindow(state: GameState, window: ReactionWindow): v
       if (state.transmission?.pendingLure) {
         resolveLure(state);
       } else {
-        state.reactionWindow = undefined;
+        const lureFrame = state.interactionStack.find(
+          (frame) => frame.kind === "lure",
+        );
+        if (!lureFrame?.resumeReactionWindow) {
+          throw new Error("调虎离山缺少原情报响应位置");
+        }
+        state.reactionWindow = cloneReactionWindow(
+          lureFrame.resumeReactionWindow,
+        );
         state.interactionStack = [];
-        beginReceiptReactionStage(state);
         assertGameStateInvariants(state);
       }
     } else if (window.kind === "lock") {

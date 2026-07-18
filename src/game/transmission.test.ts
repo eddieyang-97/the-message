@@ -910,7 +910,7 @@ describe("截获、掉包、调虎离山与转移接收", () => {
     });
   });
 
-  it("调虎离山被识破后重新开始完整情报响应，原出牌者可再次使用调虎离山", () => {
+  it("调虎离山被识破后恢复原出牌者的响应位置，且此前放弃者不再重复响应", () => {
     const state = initializedWithActive(players, 761);
     const intelligence = cardIdWhere((card) => card.transmission === "直达");
     const firstLure = cardIdWhere((card) => card.name === "调虎离山", [
@@ -926,17 +926,19 @@ describe("截获、掉包、调虎离山与转移接收", () => {
       counter,
     ]);
     putCardInHand(state, "甲", intelligence, 0);
-    putCardInHand(state, "丙", firstLure, 0);
-    putCardInHand(state, "丙", secondLure, 1);
-    putCardInHand(state, "丁", counter, 0);
+    putCardInHand(state, "丁", firstLure, 0);
+    putCardInHand(state, "丁", secondLure, 1);
+    putCardInHand(state, "戊", counter, 0);
 
     startTransmission(state, "甲", intelligence, { targetId: "乙" });
     passLockOpportunity(state, "甲");
-    playLure(state, "丙", firstLure);
     passReaction(state, "丙");
+    playLure(state, "丁", firstLure);
+    passReaction(state, "丙");
+    passReaction(state, "丁");
     playCounter(
       state,
-      "丁",
+      "戊",
       counter,
       state.interactionStack.at(-1)!.id,
     );
@@ -946,14 +948,15 @@ describe("截获、掉包、调虎离山与转移接收", () => {
       kind: "intelligence",
       affectedPlayerId: "乙",
       responderOrder: ["丙", "丁", "戊", "甲", "乙"],
-      nextResponderIndex: 0,
+      nextResponderIndex: 1,
     });
-    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
+    expect(projectGameForPlayer(state, "丙").legalActions).toEqual([]);
+    expect(projectGameForPlayer(state, "丁").legalActions).toContainEqual({
       type: "PLAY_LURE",
       cardId: secondLure,
     });
 
-    playLure(state, "丙", secondLure);
+    playLure(state, "丁", secondLure);
     expect(state.transmission?.pendingLure).toMatchObject({
       sourceCardId: secondLure,
       targetId: "乙",

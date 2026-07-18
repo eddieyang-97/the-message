@@ -268,7 +268,7 @@ Implementation note:
 - It is illegal when 锁定 requires the intended recipient to accept.
 - It is illegal against a successful interceptor because 截获 commits the interceptor to accepting.
 - It is illegal when the current recipient is already committed to acceptance by a returned or transferred intelligence; that recipient must accept unless using an unlocked 转移.
-- 识破 may counter 调虎离山 and restarts a complete intelligence reaction round for the same pending recipient. Every eligible player, including the player whose 调虎离山 was countered, may respond again and may play another 调虎离山.
+- 识破 may counter 调虎离山 and restores the intelligence reaction priority to the same position from which 调虎离山 was played. The player whose 调虎离山 was countered may respond again and may play another 调虎离山; players who had already passed before that action are not prompted again.
 - 离间 cannot redirect 调虎离山.
 - It does not alter turn order or seat eligibility. If the intelligence continues to a new recipient, that player begins a normal receipt cycle.
 
@@ -515,9 +515,9 @@ A client must not receive:
 ### Audit log
 
 - Public log records visible actions and outcomes in Chinese.
-- Privately inspected information is shown transiently only to the authorized player.
-- Do not retain inspected card identities in player-visible private history; the player must remember what they saw.
-- Reconnection does not restore past inspection details.
+- Privately inspected information is visible only to the authorized player and is retained in that player's private notice history for the lifetime of the in-memory game session.
+- Reconnection restores the authorized player's past private inspection details.
+- Private inspection details must never enter the public audit log, spectator projection, or public saved replay.
 - Server log records complete authoritative events for debugging.
 - Public saved replays redact all hidden and privately inspected information.
 - After the game ends, reveal factions and final hands.
