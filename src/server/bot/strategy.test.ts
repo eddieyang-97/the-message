@@ -114,6 +114,115 @@ describe("bot strategy", () => {
     expect(uninformed.evidence.b.潜伏).toBe(0);
   });
 
+  it("retains the secret-order color constraint for the following hidden transmission", () => {
+    const ordered = makeProjection({
+      phase: "preTransmission",
+      auditLog: ["bot使用秘密下达并宣布：日落"],
+      pendingSecretOrder: {
+        stage: "selection",
+        sourcePlayerId: "bot",
+        targetPlayerId: "b",
+        word: "日落",
+        requiredColor: "黑",
+        verifiedNoMatch: false,
+      },
+    });
+    const memory = createBotMemory(ordered);
+    const hiddenBlack = makeProjection({
+      phase: "transmitting",
+      players: makeProjection().players.map((player) =>
+        player.id === "bot"
+          ? { ...player, intelligence: [blackCard, { ...blackCard, id: "second-black" }] }
+          : player
+      ),
+      transmission: {
+        ...transmission(blackCard),
+        card: undefined,
+        faceUp: false,
+        senderId: "b",
+        intendedRecipientId: "bot",
+      },
+      auditLog: [
+        ...ordered.auditLog,
+        "b开始以密电传递情报，当前接收者：bot",
+      ],
+      legalActions: [{ type: "ACCEPT_INTELLIGENCE" }, { type: "DECLINE_INTELLIGENCE" }],
+    });
+
+    expect(chooseBotCommand(hiddenBlack, memory)?.type).toBe("DECLINE_INTELLIGENCE");
+    expect(memory.transmissionInference?.forcedColor).toBe("黑");
+  });
+
+  it.each([
+    "b声明无匹配牌并通过服务器验证",
+    "秘密下达被识破，颜色限制取消",
+  ])("does not retain an invalidated secret-order constraint: %s", (invalidationEntry) => {
+    const ordered = makeProjection({
+      phase: "preTransmission",
+      auditLog: ["bot使用秘密下达并宣布：日落"],
+      pendingSecretOrder: {
+        stage: "selection",
+        sourcePlayerId: "bot",
+        targetPlayerId: "b",
+        word: "日落",
+        requiredColor: "黑",
+        verifiedNoMatch: false,
+      },
+    });
+    const memory = createBotMemory(ordered);
+    const transmissionStarted = makeProjection({
+      phase: "transmitting",
+      transmission: {
+        ...transmission(blackCard),
+        card: undefined,
+        faceUp: false,
+        senderId: "b",
+      },
+      auditLog: [
+        ...ordered.auditLog,
+        invalidationEntry,
+        "b开始以密电传递情报，当前接收者：bot",
+      ],
+    });
+
+    observeBotProjection(memory, transmissionStarted);
+
+    expect(memory.transmissionInference?.forcedColor).toBeUndefined();
+  });
+
+  it("掉包结算后不再将秘密下达颜色当作替换牌的颜色", () => {
+    const ordered = makeProjection({
+      phase: "preTransmission",
+      auditLog: ["bot使用秘密下达并宣布：日落"],
+      pendingSecretOrder: {
+        stage: "selection",
+        sourcePlayerId: "bot",
+        targetPlayerId: "b",
+        word: "日落",
+        requiredColor: "黑",
+        verifiedNoMatch: false,
+      },
+    });
+    const memory = createBotMemory(ordered);
+    const transmissionStarted = makeProjection({
+      phase: "transmitting",
+      transmission: { ...transmission(blackCard), card: undefined, faceUp: false, senderId: "b" },
+      auditLog: [
+        ...ordered.auditLog,
+        "b开始以密电传递情报，当前接收者：bot",
+      ],
+    });
+    observeBotProjection(memory, transmissionStarted);
+    expect(memory.transmissionInference?.forcedColor).toBe("黑");
+
+    observeBotProjection(memory, {
+      ...transmissionStarted,
+      auditLog: [...transmissionStarted.auditLog, "掉包结算：原情报公开弃置；替换牌正面朝上"],
+    });
+
+    expect(memory.transmissionInference?.forcedColor).toBeUndefined();
+  });
+
   it("treats a forced public-text discard as definitive faction evidence", () => {
     const forced = makeProjection({
       phase: "resolvingReceipt",

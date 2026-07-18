@@ -73,6 +73,7 @@ interface PublicObservation {
   secretOrder?: {
     signature: string;
     sourceId: string;
+    targetId: string;
     requiredColor: SingleColor;
   };
   players: Record<string, {
@@ -97,6 +98,7 @@ export interface BotMemory {
     signature: string;
     completedDecryptors: string[];
     blackProbability?: number;
+    forcedColor?: SingleColor;
   };
   previous?: PublicObservation;
 }
@@ -405,7 +407,7 @@ export function chooseBotDecision(
             projection,
             beliefs,
             policy,
-            memory.transmissionInference?.blackProbability,
+            memory.transmissionInference,
           );
       return policy.reactionConservation > 0
         ? applyReactionConservation(action, scored, projection, beliefs, policy.reactionConservation)
@@ -478,14 +480,14 @@ function scoreAction(
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
   policy: BotPolicy,
-  inferredBlackProbability?: number,
+  transmissionInference?: BotMemory["transmissionInference"],
 ): BotDecision {
   const command = action as GameCommand;
   const ownFaction = projection.own.faction;
   const card = "cardId" in action ? projection.own.hand.find((item) => item.id === action.cardId) : undefined;
   switch (action.type) {
     case "ACCEPT_INTELLIGENCE":
-      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, inferredBlackProbability), "evaluate tactical receipt outcome");
+      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, transmissionInference), "evaluate tactical receipt outcome");
     case "DECLINE_INTELLIGENCE":
       return decision(command, 5, "preserve the current board state");
     case "ENTER_TRANSMISSION_PHASE":
@@ -493,7 +495,7 @@ function scoreAction(
     case "PASS_LOCK":
       return decision(command, 4, "preserve lock card");
     case "PLAY_LOCK":
-      return decision(command, 6 + currentTransmissionReceiptUtility(projection.transmission?.intendedRecipientId, projection, beliefs, inferredBlackProbability), "secure a tactically valuable receipt");
+      return decision(command, 6 + currentTransmissionReceiptUtility(projection.transmission?.intendedRecipientId, projection, beliefs, transmissionInference), "secure a tactically valuable receipt");
     case "PASS_REACTION":
       return decision(command, PASS_REACTION_SCORE, "preserve reaction cards");
     case "PLAY_COUNTER":
@@ -501,20 +503,20 @@ function scoreAction(
     case "PLAY_DECRYPT":
       return decision(command, projection.transmission?.card ? 4 : 14, "learn hidden intelligence");
     case "PLAY_INTERCEPT":
-      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, inferredBlackProbability), "intercept tactically useful intelligence");
+      return decision(command, 5 + currentTransmissionReceiptUtility(projection.own.id, projection, beliefs, transmissionInference), "intercept tactically useful intelligence");
     case "PLAY_SWAP":
       return decision(
         command,
-        PASS_REACTION_SCORE + swapImprovement(card, projection, beliefs, inferredBlackProbability) - SWAP_CARD_COST,
+        PASS_REACTION_SCORE + swapImprovement(card, projection, beliefs, transmissionInference) - SWAP_CARD_COST,
         "swap only when the replacement improves enough to justify spending the card",
       );
     case "PLAY_TRANSFER": {
-      const targetValue = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, inferredBlackProbability);
+      const targetValue = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, transmissionInference);
       const currentValue = currentTransmissionReceiptUtility(
         projection.transmission?.intendedRecipientId,
         projection,
         beliefs,
-        inferredBlackProbability,
+        transmissionInference,
       );
       return policy.incrementalTransfer
         ? decision(
@@ -536,8 +538,8 @@ function scoreAction(
     }
     case "PLAY_SEPARATION": {
       const pendingTargetId = projection.transmission?.pendingTransfer?.targetId;
-      const improvement = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, inferredBlackProbability)
-        - currentTransmissionReceiptUtility(pendingTargetId, projection, beliefs, inferredBlackProbability);
+      const improvement = currentTransmissionReceiptUtility(action.targetId, projection, beliefs, transmissionInference)
+        - currentTransmissionReceiptUtility(pendingTargetId, projection, beliefs, transmissionInference);
       return decision(
         command,
         PASS_REACTION_SCORE + improvement - SEPARATION_CARD_COST,
@@ -578,12 +580,12 @@ function scoreAction(
         nextTargetId,
         projection,
         beliefs,
-        inferredBlackProbability,
+        transmissionInference,
       ) - currentTransmissionReceiptUtility(
         currentTargetId,
         projection,
         beliefs,
-        inferredBlackProbability,
+        transmissionInference,
       );
       return decision(
         command,
@@ -774,7 +776,7 @@ export function receiptUtility(
 }
 
 function receiptColorUtility(
-  color: SingleColor,
+  color: PhysicalCard["color"],
   recipientId: string,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
@@ -783,8 +785,8 @@ function receiptColorUtility(
   if (!recipient) return 0;
   const before = countIntelligence(recipient.intelligence);
   const after = {
-    red: before.red + (color === "红" ? 1 : 0),
-    blue: before.blue + (color === "蓝" ? 1 : 0),
+    red: before.red + (color === "红" || color === "红蓝" ? 1 : 0),
+    blue: before.blue + (color === "蓝" || color === "红蓝" ? 1 : 0),
     black: before.black + (color === "黑" ? 1 : 0),
     physical: before.physical + 1,
   };
@@ -801,12 +803,24 @@ function currentTransmissionReceiptUtility(
   recipientId: string | undefined,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
-  inferredBlackProbability?: number,
+  inference?: BotMemory["transmissionInference"],
 ): number {
-  if (!recipientId || projection.transmission?.card || inferredBlackProbability === undefined) {
+  if (!recipientId || projection.transmission?.card) {
     return receiptUtility(projection.transmission?.card, recipientId, projection, beliefs);
   }
-  const blackProbability = Math.max(0, Math.min(1, inferredBlackProbability));
+  if (inference?.forcedColor) {
+    const possibleColors: readonly PhysicalCard["color"][] = inference.forcedColor === "黑"
+      ? ["黑"]
+      : [inference.forcedColor, "红蓝"];
+    return possibleColors.reduce(
+      (total, color) => total + receiptColorUtility(color, recipientId, projection, beliefs),
+      0,
+    ) / possibleColors.length;
+  }
+  if (inference?.blackProbability === undefined) {
+    return receiptUtility(undefined, recipientId, projection, beliefs);
+  }
+  const blackProbability = Math.max(0, Math.min(1, inference.blackProbability));
   const otherColorProbability = (1 - blackProbability) / 2;
   return blackProbability * receiptColorUtility("黑", recipientId, projection, beliefs)
     + otherColorProbability * receiptColorUtility("红", recipientId, projection, beliefs)
@@ -857,11 +871,11 @@ function swapImprovement(
   replacement: PhysicalCard | undefined,
   projection: PlayerProjection,
   beliefs: Record<string, FactionBelief>,
-  inferredBlackProbability?: number,
+  transmissionInference?: BotMemory["transmissionInference"],
 ): number {
   const recipient = projection.transmission?.intendedRecipientId;
   return receiptUtility(replacement, recipient, projection, beliefs)
-    - currentTransmissionReceiptUtility(recipient, projection, beliefs, inferredBlackProbability);
+    - currentTransmissionReceiptUtility(recipient, projection, beliefs, transmissionInference);
 }
 
 function activeFunctionTargetUtility(
@@ -1123,9 +1137,18 @@ function observeTransmissionInference(
   }
   const isNewTransmission = memory.transmissionInference?.signature !== current.signature;
   if (isNewTransmission) {
+    const priorSecretOrder = memory.previous?.secretOrder;
+    const recentAudit = projection.auditLog.slice(memory.previous?.auditLength ?? 0);
+    const secretOrderInvalidated = recentAudit.some(
+      (entry) => entry.includes("秘密下达被识破") || entry.includes("声明无匹配牌并通过服务器验证"),
+    );
     memory.transmissionInference = {
       signature: current.signature,
       completedDecryptors: [],
+      forcedColor:
+        priorSecretOrder?.targetId === current.senderId && !secretOrderInvalidated
+          ? priorSecretOrder.requiredColor
+          : undefined,
     };
   }
   const inference = memory.transmissionInference!;
@@ -1133,6 +1156,10 @@ function observeTransmissionInference(
     ? current.startAuditIndex
     : memory.previous?.auditLength ?? projection.auditLog.length;
   for (const entry of projection.auditLog.slice(scanFrom)) {
+    if (entry.startsWith("掉包结算：")) {
+      inference.forcedColor = undefined;
+      continue;
+    }
     const completedDecrypt = /^(.+)完成破译$/.exec(entry)?.[1];
     if (completedDecrypt && !inference.completedDecryptors.includes(completedDecrypt)) {
       inference.completedDecryptors.push(completedDecrypt);
@@ -1173,8 +1200,8 @@ function observeDefinitivePublicTextInference(
     const forcedDiscard = [
       /^(.+)须为公开文本选择一张手牌弃置$/,
       /^(.+)因公开文本须弃牌，但其没有手牌$/,
-      /^(.+)因公开文本自动弃置唯一的手牌$/,
-      /^(.+)因公开文本弃置一张手牌$/,
+      /^(.+)因公开文本自动弃置唯一的手牌(?:：.*)?$/,
+      /^(.+)因公开文本弃置一张手牌(?:：.*)?$/,
     ].map((pattern) => pattern.exec(entry)?.[1]).find(Boolean);
     if (forcedDiscard) {
       const current = pending.get(forcedDiscard);
@@ -1199,10 +1226,11 @@ function functionObservation(projection: PlayerProjection): PublicObservation["f
 
 function secretOrderObservation(projection: PlayerProjection): PublicObservation["secretOrder"] {
   const current = projection.pendingSecretOrder;
-  if (!current?.sourcePlayerId || !current.requiredColor) return undefined;
+  if (!current?.sourcePlayerId || !current.requiredColor || current.verifiedNoMatch) return undefined;
   return {
     signature: [current.sourcePlayerId, current.targetPlayerId, current.word, current.requiredColor].join("|"),
     sourceId: current.sourcePlayerId,
+    targetId: current.targetPlayerId,
     requiredColor: current.requiredColor,
   };
 }
