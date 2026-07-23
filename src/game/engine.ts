@@ -30,6 +30,7 @@ export interface TransmissionState {
   receiptStage: ReceiptStage;
   lockOfferUsed: boolean;
   locked: boolean;
+  lockedRecipientId?: PlayerId;
   faceUp: boolean;
   pendingTransfer?: {
     sourceCardId: PhysicalCardId;
@@ -127,6 +128,7 @@ export interface ReversibleInteractionSnapshot {
   transferredRecipientCommitted: boolean;
   receiptStage: ReceiptStage;
   locked: boolean;
+  lockedRecipientId?: PlayerId;
   receiptCycle: number;
   lockOfferUsed: boolean;
   pendingSwap?: {
@@ -326,6 +328,7 @@ export interface PlayerProjection {
     transferredRecipientCommitted: boolean;
     receiptStage: ReceiptStage;
     locked: boolean;
+    lockedRecipientId?: PlayerId;
     faceUp: boolean;
     pendingTransfer?: {
       sourceCard: PhysicalCard;
@@ -997,6 +1000,15 @@ export function assertGameStateInvariants(state: GameState): void {
     if (transmission.locked && !transmission.lockOfferUsed) {
       throw new Error("锁定生效前必须消耗本次锁定机会");
     }
+    if (transmission.locked !== Boolean(transmission.lockedRecipientId)) {
+      throw new Error("锁定状态必须记录唯一的锁定目标");
+    }
+    if (
+      transmission.lockedRecipientId &&
+      !state.players[transmission.lockedRecipientId]?.alive
+    ) {
+      throw new Error("锁定目标必须存活且存在");
+    }
     if (transmission.locked && transmission.interceptorCommitted) {
       throw new Error("截获承诺接收时不能保留前一接收者的锁定");
     }
@@ -1213,6 +1225,7 @@ function captureInteractionSnapshot(
     transferredRecipientCommitted: transmission.transferredRecipientCommitted,
     receiptStage: transmission.receiptStage,
     locked: transmission.locked,
+    lockedRecipientId: transmission.lockedRecipientId,
     receiptCycle: transmission.receiptCycle,
     lockOfferUsed: transmission.lockOfferUsed,
     pendingTransfer: transmission.pendingTransfer
@@ -1241,6 +1254,7 @@ function restoreInteractionSnapshot(
   transmission.transferredRecipientCommitted = snapshot.transferredRecipientCommitted;
   transmission.receiptStage = snapshot.receiptStage;
   transmission.locked = snapshot.locked;
+  transmission.lockedRecipientId = snapshot.lockedRecipientId;
   transmission.receiptCycle = snapshot.receiptCycle;
   transmission.lockOfferUsed = snapshot.lockOfferUsed;
   transmission.pendingTransfer = snapshot.pendingTransfer
@@ -1295,8 +1309,8 @@ function beginNormalReceiptCycle(
   transmission.interceptorCommitted = false;
   transmission.transferredRecipientCommitted = false;
   transmission.receiptCycle += 1;
-  transmission.lockOfferUsed = returnedToSender || skipLockOffer;
-  transmission.locked = false;
+  transmission.lockOfferUsed =
+    returnedToSender || skipLockOffer || transmission.locked;
   transmission.pendingTransfer = undefined;
   transmission.pendingSwap = undefined;
   transmission.pendingLure = undefined;
@@ -1305,7 +1319,7 @@ function beginNormalReceiptCycle(
   state.interactionStack = [];
   state.reactionWindow = undefined;
 
-  if (returnedToSender || skipLockOffer) {
+  if (returnedToSender || skipLockOffer || transmission.locked) {
     transmission.receiptStage = "reactions";
     openIntelligenceReactionWindow(state, recipientId);
   } else {
@@ -1495,9 +1509,10 @@ export function resolveHostImposedDeath(
 
   const wasActiveSender = playerId === state.activePlayerId;
   const wasIntendedRecipient = state.transmission?.intendedRecipientId === playerId;
+  const wasLockedRecipient = state.transmission?.lockedRecipientId === playerId;
   const wasCommittedRecipient = Boolean(
     wasIntendedRecipient &&
-      (state.transmission?.locked ||
+      (wasLockedRecipient ||
         state.transmission?.interceptorCommitted ||
         state.transmission?.transferredRecipientCommitted),
   );
@@ -1508,6 +1523,10 @@ export function resolveHostImposedDeath(
 
   player.alive = false;
   player.factionRevealed = true;
+  if (wasLockedRecipient && !wasIntendedRecipient && state.transmission) {
+    state.transmission.locked = false;
+    state.transmission.lockedRecipientId = undefined;
+  }
   pruneSuspendedBurnPrioritiesAfterDeath(state, playerId);
   pruneFrameResumePrioritiesAfterDeath(state, playerId);
   state.auditLog.push(`${playerId}被房主判定死亡，阵营公开为${player.faction}`);
@@ -2388,6 +2407,7 @@ export function startTransmission(
     receiptStage: "lockOffer",
     lockOfferUsed: false,
     locked: false,
+    lockedRecipientId: undefined,
     faceUp: method === "文本",
   };
   state.phase = "transmitting";
@@ -2454,6 +2474,7 @@ export function playLock(
   });
   transmission.lockOfferUsed = true;
   transmission.locked = true;
+  transmission.lockedRecipientId = transmission.intendedRecipientId;
   transmission.receiptStage = "reactions";
   state.reactionWindow = {
     kind: "lock",
@@ -2552,7 +2573,7 @@ export function playLure(
     !transmission ||
     !window ||
     window.kind !== "intelligence" ||
-    transmission.locked ||
+    transmission.lockedRecipientId === transmission.intendedRecipientId ||
     transmission.interceptorCommitted ||
     transmission.transferredRecipientCommitted ||
     transmission.intendedRecipientId === transmission.senderId
@@ -2881,7 +2902,7 @@ export function declineIntelligence(state: GameState, actorId: PlayerId): void {
   if (transmission.transferredRecipientCommitted) {
     throw new Error("转移后的接收者必须接收情报，不能拒绝");
   }
-  if (transmission.locked) {
+  if (transmission.lockedRecipientId === transmission.intendedRecipientId) {
     throw new Error("锁定要求当前接收者接收情报");
   }
 
@@ -2910,7 +2931,10 @@ export function playTransfer(
   if (state.phase !== "transmitting" || !transmission) {
     throw new Error("当前没有可转移的情报");
   }
-  if (actorId !== transmission.intendedRecipientId || transmission.locked) {
+  if (
+    actorId !== transmission.intendedRecipientId ||
+    transmission.lockedRecipientId === transmission.intendedRecipientId
+  ) {
     throw new Error("只有未被锁定情报的当前接收者可以使用转移");
   }
   if (transmission.interceptorCommitted) {
@@ -3263,7 +3287,7 @@ export function playDecrypt(
     window.kind !== "intelligence" ||
     window.responderOrder[window.nextResponderIndex] !== actorId ||
     transmission.intendedRecipientId !== actorId ||
-    transmission.locked ||
+    transmission.lockedRecipientId === transmission.intendedRecipientId ||
     transmission.interceptorCommitted ||
     transmission.method === "文本"
   ) throw new Error("当前接收者没有可用的破译机会");
@@ -3337,6 +3361,7 @@ export function playIntercept(
   transmission.transferredRecipientCommitted = false;
   transmission.receiptStage = "reactions";
   transmission.locked = false;
+  transmission.lockedRecipientId = undefined;
   openIntelligenceReactionWindow(state, actorId);
   state.auditLog.push(`${actorId}使用截获，成为当前接收者`);
   assertGameStateInvariants(state);
@@ -3552,7 +3577,7 @@ function settleTransmissionSeparation(
   const currentTargetId =
     window.kind === "transfer"
       ? transmission.pendingTransfer?.targetId
-      : transmission.intendedRecipientId;
+      : transmission.lockedRecipientId;
   const separationSurvived =
     currentTargetId === separationFrame.targetPlayerId;
   state.interactionStack = state.interactionStack.slice(0, separationIndex);
@@ -3600,7 +3625,7 @@ export function playSeparationOnTransmission(
     !baseFrame ||
     (!isTransfer && !isLock) ||
     (isTransfer && !pending) ||
-    (isLock && !transmission.locked)
+    (isLock && !transmission.lockedRecipientId)
   ) {
     throw new Error("当前没有可被离间改换目标的卡牌行动");
   }
@@ -3621,7 +3646,7 @@ export function playSeparationOnTransmission(
   }
   const currentTargetId = isTransfer
     ? pending!.targetId
-    : transmission.intendedRecipientId;
+    : transmission.lockedRecipientId!;
   if (
     targetId === currentTargetId ||
     targetId === baseFrame.targetPlayerId ||
@@ -3644,8 +3669,7 @@ export function playSeparationOnTransmission(
   if (isTransfer) {
     pending!.targetId = targetId;
   } else {
-    transmission.intendedRecipientId = targetId;
-    transmission.returnedToSender = targetId === transmission.senderId;
+    transmission.lockedRecipientId = targetId;
   }
   state.reactionWindow = {
     kind: window.kind,
@@ -3699,7 +3723,7 @@ export function projectGameForPlayer(
     transmission &&
     !transmission.pendingTransfer &&
     transmission.intendedRecipientId === viewerId &&
-    !transmission.locked &&
+    transmission.lockedRecipientId !== transmission.intendedRecipientId &&
     !transmission.interceptorCommitted &&
     state.reactionWindow?.kind === "intelligence" &&
     currentReactionResponderId === viewerId
@@ -3847,7 +3871,7 @@ export function projectGameForPlayer(
     transmission &&
     viewerId !== transmission.intendedRecipientId &&
     transmission.intendedRecipientId !== transmission.senderId &&
-    !transmission.locked &&
+    transmission.lockedRecipientId !== transmission.intendedRecipientId &&
     !transmission.interceptorCommitted &&
     !transmission.transferredRecipientCommitted
       ? viewer.hand
@@ -3859,7 +3883,7 @@ export function projectGameForPlayer(
     state.reactionWindow?.kind === "intelligence" &&
     transmission?.intendedRecipientId === viewerId &&
     transmission.method !== "文本" &&
-    !transmission.locked &&
+    transmission.lockedRecipientId !== transmission.intendedRecipientId &&
     !transmission.interceptorCommitted
       ? viewer.hand
           .filter((cardId) => cardById(cardId).name === "破译")
@@ -3867,7 +3891,8 @@ export function projectGameForPlayer(
       : [];
   const recipientMustAccept =
     transmission?.interceptorCommitted === true ||
-    transmission?.transferredRecipientCommitted === true;
+    transmission?.transferredRecipientCommitted === true ||
+    transmission?.lockedRecipientId === transmission?.intendedRecipientId;
   const topInteraction =
     state.reactionWindow?.kind === "burn"
       ? state.burnContexts.at(-1)?.frames.at(-1)
@@ -4026,6 +4051,7 @@ export function projectGameForPlayer(
           transferredRecipientCommitted: transmission.transferredRecipientCommitted,
           receiptStage: transmission.receiptStage,
           locked: transmission.locked,
+          lockedRecipientId: transmission.lockedRecipientId,
           faceUp: transmission.faceUp,
           decrypted: transmission.decryptedById === viewerId,
           card: canSeePendingCard
@@ -4156,7 +4182,7 @@ export function projectGameForPlayer(
             ...(canAccept ? [{ type: "ACCEPT_INTELLIGENCE" } as const] : []),
             ...(!isReturnedForViewer &&
             !recipientMustAccept &&
-            !transmission.locked
+            transmission.lockedRecipientId !== transmission.intendedRecipientId
               ? [{ type: "DECLINE_INTELLIGENCE" as const }]
               : []),
           ]

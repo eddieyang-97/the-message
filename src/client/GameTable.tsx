@@ -730,7 +730,6 @@ export function GameTable({
   const actions = projection.legalActions;
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
-  const targetIds = new Set(selectedActions.filter((action) => action.type !== "PLAY_BURN").map(actionTargetId).filter((id): id is string => Boolean(id)));
   const visiblePromptActions = promptActions(actions, selectedCardId);
   const inspectedHand = inspectedHandForProjection(projection);
   const selectedBurnActions = selectedCardId
@@ -785,6 +784,18 @@ export function GameTable({
   }, [selectedCardId, selectableCardIds]);
 
   const effectiveMethod = selectedCard?.transmission === "任意" ? transmissionMethod : selectedCard?.transmission;
+  const directTransmissionTargetIds = canStartTransmission && selectedCard && effectiveMethod === "直达"
+    ? projection.players
+        .filter((player) => player.alive && player.id !== projection.own.id)
+        .map((player) => player.id)
+    : [];
+  const targetIds = new Set([
+    ...selectedActions
+      .filter((action) => action.type !== "PLAY_BURN")
+      .map(actionTargetId)
+      .filter((id): id is string => Boolean(id)),
+    ...directTransmissionTargetIds,
+  ]);
   const mergedAuditEntries = mergeAuditLogs(projection.auditLog, publicAuditEvents);
   const auditEntries = mergedAuditEntries
     .map((entry, index) => ({
@@ -846,7 +857,23 @@ export function GameTable({
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
-    if (matches.length === 1) onCommand(matches[0]);
+    if (matches.length === 1) {
+      onCommand(matches[0]);
+      return;
+    }
+    if (
+      matches.length === 0 &&
+      selectedCard &&
+      effectiveMethod === "直达" &&
+      directTransmissionTargetIds.includes(targetId)
+    ) {
+      onCommand({
+        type: "START_TRANSMISSION",
+        cardId: selectedCard.id as PhysicalCardId,
+        method: effectiveMethod,
+        targetId,
+      });
+    }
   };
 
   return (
@@ -1001,7 +1028,7 @@ export function GameTable({
                       targetName={playerDisplayNames[id] ?? id}
                     />
                   )}
-                  <button disabled={!isTarget || busy} onClick={() => chooseTarget(id)} type="button">
+                  <button disabled={!isTarget || busy || !connected} onClick={() => chooseTarget(id)} type="button">
                   <strong data-reaction-target-player-id={id}>
                     {playerDisplayNames[id] ?? id}{isOwn ? "（你）" : ""}
                   </strong>
@@ -1187,7 +1214,7 @@ export function GameTable({
             </div>
             {canStartTransmission && selectedCard && (
               <div className="transmission-composer">
-                <strong>发送这张牌</strong>
+                <strong>{effectiveMethod === "直达" ? "选择接收者" : "发送这张牌"}</strong>
                 {selectedCard.transmission === "任意" && (
                   <select onChange={(event) => setTransmissionMethod(event.target.value as typeof transmissionMethod)} value={transmissionMethod}>
                     <option value="直达">直达</option><option value="文本">文本</option><option value="密电">密电</option>
@@ -1199,7 +1226,7 @@ export function GameTable({
                   </select>
                 )}
                 {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
-                  <button disabled={busy || !connected} key={player.id} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">发给 {playerDisplayNames[player.id] ?? player.id}</button>
+                  <button disabled={busy || !connected} key={player.id} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">{playerDisplayNames[player.id] ?? player.id}</button>
                 )) : (
                   <button disabled={busy || !connected} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">开始传递</button>
                 )}

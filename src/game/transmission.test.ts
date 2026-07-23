@@ -790,7 +790,7 @@ describe("发送者锁定与目标最后响应", () => {
     ).toThrow("不能使用识破反制自己的卡牌行动");
   });
 
-  it("离间可改换锁定目标，结算后从新目标重开锁定响应", () => {
+  it("离间只改换锁定目标，原接收者仍可接收当前情报", () => {
     const state = initializedWithActive(players, 73);
     const intelligence = cardIdWhere((card) => card.transmission === "直达");
     const lock = cardIdWhere((card) => card.name === "锁定", [intelligence]);
@@ -814,8 +814,9 @@ describe("发送者锁定与目标最后响应", () => {
     finishCurrentReactionWindow(state);
 
     expect(state.transmission).toMatchObject({
-      intendedRecipientId: "丁",
+      intendedRecipientId: "乙",
       locked: true,
+      lockedRecipientId: "丁",
       returnedToSender: false,
     });
     expect(state.reactionWindow).toMatchObject({
@@ -832,9 +833,49 @@ describe("发送者锁定与目标最后响应", () => {
     });
 
     passAllReactions(state);
+    expect(projectGameForPlayer(state, "乙").legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
+      { type: "DECLINE_INTELLIGENCE" },
+    ]);
+    expect(() => acceptIntelligence(state, "乙")).not.toThrow();
+    expect(state.players["乙"].intelligence).toContain(intelligence);
+  });
+
+  it("离间后的锁定持续到情报传至新锁定目标", () => {
+    const state = initializedWithActive(players, 732);
+    const intelligence = cardIdWhere((card) => card.transmission === "密电");
+    const lock = cardIdWhere((card) => card.name === "锁定", [intelligence]);
+    const separation = cardIdWhere((card) => card.name === "离间", [
+      intelligence,
+      lock,
+    ]);
+    putCardInHand(state, "甲", intelligence, 0);
+    putCardInHand(state, "甲", lock, 1);
+    putCardInHand(state, "丙", separation, 0);
+
+    startTransmission(state, "甲", intelligence, { direction: "clockwise" });
+    playLock(state, "甲", lock);
+    playSeparationOnTransfer(state, "丙", separation, "丁");
+    passAllReactions(state);
+
+    declineIntelligence(state, "乙");
+    passAllReactions(state);
+    expect(projectGameForPlayer(state, "丙").legalActions).toContainEqual({
+      type: "DECLINE_INTELLIGENCE",
+    });
+    declineIntelligence(state, "丙");
+    passAllReactions(state);
+
+    expect(state.transmission).toMatchObject({
+      intendedRecipientId: "丁",
+      lockedRecipientId: "丁",
+    });
     expect(projectGameForPlayer(state, "丁").legalActions).toEqual([
       { type: "ACCEPT_INTELLIGENCE" },
     ]);
+    expect(() => declineIntelligence(state, "丁")).toThrow(
+      "锁定要求当前接收者接收情报",
+    );
   });
 
   it("识破离间后恢复锁定原目标及离间出牌者的原响应位置", () => {
@@ -869,6 +910,7 @@ describe("发送者锁定与目标最后响应", () => {
     expect(state.transmission).toMatchObject({
       intendedRecipientId: "乙",
       locked: true,
+      lockedRecipientId: "乙",
     });
     expect(state.reactionWindow).toMatchObject({
       kind: "lock",

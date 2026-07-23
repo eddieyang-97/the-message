@@ -108,13 +108,30 @@ describe("GameSessionService", () => {
     });
 
     expect(state.transmission).toMatchObject({
-      intendedRecipientId: redirectedTargetId,
+      intendedRecipientId: recipientId,
       locked: true,
+      lockedRecipientId: redirectedTargetId,
     });
     expect(state.reactionWindow).toMatchObject({
       kind: "lock",
       affectedPlayerId: redirectedTargetId,
     });
+
+    while (state.reactionWindow) {
+      const responderId =
+        state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex];
+      sessions.dispatch("ABCDEF", responderId, { type: "PASS_REACTION" });
+    }
+    expect(sessions.project("ABCDEF", recipientId).legalActions).toEqual([
+      { type: "ACCEPT_INTELLIGENCE" },
+      { type: "DECLINE_INTELLIGENCE" },
+    ]);
+    expect(() =>
+      sessions.dispatch("ABCDEF", recipientId, {
+        type: "ACCEPT_INTELLIGENCE",
+      }),
+    ).not.toThrow();
+    expect(state.players[recipientId].intelligence).toContain(intelligence.id);
   });
 
   it("dispatches 试探的离间 and offers the original transmission sender for 转移离间", () => {

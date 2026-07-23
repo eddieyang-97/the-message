@@ -190,7 +190,7 @@ Implementation note:
 - Played before acceptance.
 - When intelligence reaches an intended recipient through its normal route, offer the active sender an exclusive sender-first opportunity to play 锁定 before opening the regular reaction window.
 - If the sender passes or that 锁定 is countered, do not offer another 锁定 against the same recipient during that receipt cycle.
-- The current intended recipient cannot decline.
+- The player targeted by a resolved 锁定 cannot decline when that player becomes the current intended recipient.
 - 截获 can override the locked recipient.
 - Do not offer a new 锁定 after a successful 截获 because the interceptor is already committed to accepting.
 
@@ -287,7 +287,7 @@ May redirect the target of:
 
 The new target cannot be the original target.
 - At most one 离间 may be played against each original card action; the redirected action cannot be redirected again with another 离间.
-- Redirecting 锁定 changes the current intelligence recipient; if 离间 survives, the lock applies to the new recipient.
+- Redirecting 锁定 changes only the lock target. It does not move the pending intelligence or change the current intended recipient. The original recipient completes the normal receipt response and may accept or decline. If the transmission later reaches the redirected lock target before ending, that player must accept.
 - After 离间 resolves, the original card action remains pending and resumes its own reaction timing with the final target.
 - 识破 may counter 离间 and restores the original target and the response position from which 离间 was played.
 
@@ -296,11 +296,11 @@ The new target cannot be the original target.
 ### 破译
 
 - Allows inspection of a 密电 or 直达 intelligence before its receipt decision resolves.
-- The recipient selected by a resolved 转移 may use 破译, 掉包, or another 转移 before their mandatory acceptance, provided the intelligence is not locked.
+- The recipient selected by a resolved 转移 may use 破译, 掉包, or another 转移 before their mandatory acceptance, provided that player is not the lock target.
 - Only the current intended recipient may use it.
 - Reveal the inspected intelligence privately only to that recipient.
 - It may be used only while the recipient still has a legal receipt decision or a pending mandatory acceptance after 转移.
-- It cannot be used after a successful 锁定 because acceptance is mandatory.
+- It cannot be used when the current recipient is the target of a successful 锁定 because acceptance is mandatory.
 - It cannot be used by a successful interceptor because 截获 commits that player to acceptance.
 
 ---

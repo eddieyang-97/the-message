@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import type { PlayerProjection, SpectatorProjection } from "../game/engine";
 import type { RoomEntryResult, RoomSnapshot } from "../room";
@@ -100,6 +100,12 @@ export function App() {
   const [reactionTimer, setReactionTimer] = useState<ReactionTimerSnapshot | null>(null);
   const [autoPassDelayMs, setAutoPassDelayMs] = useState(loadAutoPassDelayPreference);
   const [playerReactions, setPlayerReactions] = useState<PlayerReactionEvent[]>([]);
+  const showingGameTable = Boolean(game || spectatorGame);
+
+  useLayoutEffect(() => {
+    if (!showingGameTable) return;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [showingGameTable]);
 
   const updateAutoPassDelay = useCallback((milliseconds: AutoPassDelayMs) => {
     setAutoPassDelayMs(milliseconds);

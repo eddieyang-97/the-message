@@ -4,8 +4,14 @@ import {
   MAX_CHAT_MESSAGE_LENGTH,
   type ChatMessageSnapshot,
 } from "../room";
+import "./chat-emoji.css";
 
 export const CHAT_BUBBLE_DURATION_MS = 5_000;
+export const CHAT_EMOJIS = [
+  "😀", "😂", "😊", "😍", "🥳", "😎", "🤔", "😭",
+  "😡", "👍", "👎", "👏", "🙏", "💪", "🤝", "👀",
+  "❤️", "💔", "🔥", "✨", "🎉", "🌹", "🍅", "🕵️",
+] as const;
 
 export interface ChatPanelProps {
   messages: readonly ChatMessageSnapshot[];
@@ -20,6 +26,19 @@ export function messagesAfterSequence(
   sequence: number,
 ): ChatMessageSnapshot[] {
   return messages.filter((message) => message.sequence > sequence);
+}
+
+export function insertChatEmoji(
+  text: string,
+  emoji: string,
+  selectionStart = text.length,
+  selectionEnd = selectionStart,
+): string {
+  const start = Math.max(0, Math.min(selectionStart, text.length));
+  const end = Math.max(start, Math.min(selectionEnd, text.length));
+  return Array.from(`${text.slice(0, start)}${emoji}${text.slice(end)}`)
+    .slice(0, MAX_CHAT_MESSAGE_LENGTH)
+    .join("");
 }
 
 export function usePlayerChatBubbles(
@@ -86,7 +105,9 @@ export function ChatPanel({
   onSend,
 }: ChatPanelProps) {
   const [text, setText] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const listRef = useRef<HTMLOListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const list = listRef.current;
@@ -99,6 +120,20 @@ export function ChatPanel({
     if (!onSend || !normalized || busy || !connected) return;
     onSend(normalized);
     setText("");
+    setEmojiOpen(false);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const input = inputRef.current;
+    const selectionStart = input?.selectionStart ?? text.length;
+    const selectionEnd = input?.selectionEnd ?? selectionStart;
+    const next = insertChatEmoji(text, emoji, selectionStart, selectionEnd);
+    setText(next);
+    const nextCursor = Math.min(selectionStart + emoji.length, next.length);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
   };
 
   return (
@@ -125,20 +160,50 @@ export function ChatPanel({
         {messages.length === 0 && <li className="chat-panel__empty">暂无消息</li>}
       </ol>
       {onSend && (
-        <form onSubmit={submit}>
+        <form className="chat-composer" onSubmit={submit}>
           <input
             aria-label="聊天消息"
             disabled={!connected}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setEmojiOpen(false);
+            }}
             onChange={(event) => {
               const next = event.target.value;
               if (Array.from(next).length <= MAX_CHAT_MESSAGE_LENGTH) setText(next);
             }}
             placeholder="输入消息…"
+            ref={inputRef}
             value={text}
           />
+          <button
+            aria-expanded={emojiOpen}
+            aria-label="选择表情"
+            className="chat-emoji-trigger"
+            disabled={busy || !connected}
+            onClick={() => setEmojiOpen((current) => !current)}
+            title="选择表情"
+            type="button"
+          >
+            😊
+          </button>
           <button disabled={busy || !connected || text.trim().length === 0} type="submit">
             发送
           </button>
+          {emojiOpen && (
+            <div aria-label="常用表情" className="chat-emoji-picker" role="menu">
+              {CHAT_EMOJIS.map((emoji) => (
+                <button
+                  aria-label={`插入${emoji}`}
+                  key={emoji}
+                  onClick={() => insertEmoji(emoji)}
+                  role="menuitem"
+                  type="button"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
         </form>
       )}
     </section>
