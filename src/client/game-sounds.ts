@@ -3,6 +3,7 @@ import type { PlayerProjection, WinnerState } from "../game/engine";
 export type GameSoundCue =
   | "draw"
   | "play"
+  | "pass"
   | "burn"
   | "receive"
   | "prompt"
@@ -81,6 +82,11 @@ function renderCue(audio: AudioContext, cue: GameSoundCue): void {
       noise(audio, 0, 0.055, 0.035, 1500);
       tone(audio, 180, 0, 0.08, 0.025, "triangle");
       break;
+    case "pass":
+      noise(audio, 0, 0.16, 0.018, 3200);
+      tone(audio, 620, 0, 0.11, 0.025, "sine");
+      tone(audio, 470, 0.09, 0.13, 0.022, "sine");
+      break;
     case "burn":
       noise(audio, 0, 0.28, 0.055, 2300);
       tone(audio, 150, 0.02, 0.3, 0.04, "sawtooth");
@@ -158,6 +164,11 @@ export function soundCueForAuditEntries(
   if (entries.some((entry) => /烧毁结算：.*公开弃置/.test(entry))) return "burn";
   if (entries.some((entry) => entry.includes("接收情报"))) return "receive";
   if (entries.some((entry) => /摸\d+张牌/.test(entry))) return "draw";
+  if (
+    entries.some((entry) =>
+      entry.includes("当前接收者：") || entry.includes("成为当前接收者")
+    )
+  ) return "pass";
   if (
     entries.some((entry) =>
       entry.includes("使用") ||

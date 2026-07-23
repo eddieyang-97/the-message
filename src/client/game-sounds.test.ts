@@ -9,6 +9,16 @@ describe("game sound cues", () => {
   it("classifies the main public game events by priority", () => {
     expect(soundCueForAuditEntries(["甲回合开始并摸2张牌"])).toBe("draw");
     expect(soundCueForAuditEntries(["甲使用锁定"])).toBe("play");
+    expect(
+      soundCueForAuditEntries([
+        "乙拒绝情报，当前接收者：丙",
+      ]),
+    ).toBe("pass");
+    expect(
+      soundCueForAuditEntries([
+        "丁使用截获，成为当前接收者",
+      ]),
+    ).toBe("pass");
     expect(soundCueForAuditEntries(["乙接收情报：「截获（黑 · 密电）」"])).toBe(
       "receive",
     );
