@@ -9,6 +9,7 @@ import { formatAuditEntries, mergeAuditLogs, publicCardSummary } from "./GameTab
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
 import { PlayerReactionLayer } from "./PlayerReactionLayer";
+import { ResizableGameSidebar } from "./ResizableGameSidebar";
 import "./game-table.css";
 
 export interface SpectatorTableProps {
@@ -143,18 +144,18 @@ export function SpectatorTable({
             />
           )}
         </div>
-        <aside className="game-sidebar">
-          <section className="audit-panel">
+        <ResizableGameSidebar
+          auditPanel={<section className="audit-panel">
             <h2>公开记录</h2>
             <ol>{auditEntries.map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ol>
-          </section>
-          <ChatPanel
+          </section>}
+          chatPanel={<ChatPanel
             connected={connected}
             messages={chatMessages}
             onSend={onSendChat}
             playerDisplayNames={playerDisplayNames}
-          />
-        </aside>
+          />}
+        />
       </section>
       {discardPileOpen && (
         <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />

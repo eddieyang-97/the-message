@@ -9,6 +9,7 @@ import { ChatPanel, PlayerChatBubble, usePlayerChatBubbles } from "./ChatPanel";
 import { DiscardPileButton, DiscardPileDialog } from "./DiscardPile";
 import { FinalHandsPanel } from "./FinalHandsPanel";
 import { PlayerReactionLayer, PlayerReactionMenu } from "./PlayerReactionLayer";
+import { ResizableGameSidebar } from "./ResizableGameSidebar";
 import {
   AUTO_PASS_DELAY_OPTIONS_MS,
   REACTION_TIMEOUT_OPTIONS,
@@ -1256,8 +1257,8 @@ export function GameTable({
           </section>
         </div>
 
-        <aside className="game-sidebar">
-          <section className="audit-panel">
+        <ResizableGameSidebar
+          auditPanel={<section className="audit-panel">
             <header>
               <h2>公开记录</h2>
               <label>
@@ -1290,15 +1291,15 @@ export function GameTable({
                 <li key={`${entry.text}-${entry.index}`} value={entry.index + 1}>{entry.text}</li>
               ))}
             </ol>
-          </section>
-          <ChatPanel
+          </section>}
+          chatPanel={<ChatPanel
             busy={busy}
             connected={connected}
             messages={chatMessages}
             onSend={onSendChat}
             playerDisplayNames={playerDisplayNames}
-          />
-        </aside>
+          />}
+        />
       </section>
       {discardPileOpen && (
         <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
