@@ -45,9 +45,9 @@ and command sequence, engine results are reproducible.
 | Category | Important fields | Purpose |
 | --- | --- | --- |
 | Game identity | `mode`, `seatOrder`, `activePlayerId` | Stable seat and mode information |
-| Physical zones | `drawPile`, player hands and intelligence, `publicDiscard`, `hiddenSecretOrders`, `removedProbes`, `transmission.cardId` | Exactly one location for every physical card |
+| Physical zones | `drawPile`, player hands and intelligence, terminal piles, `transmission.cardId`, resolving frame source cards | Exactly one location for every physical card |
 | Turn/effect state | `phase`, `transmission`, `pendingPublicTextReceipt`, `pendingSecretOrder`, `activeFunctionAction` | Current rule-level operation |
-| Response state | `reactionWindow`, `interactionStack`, `activeFunctionStack`, `secretOrderStack`, `burnContexts` | Passing order, counter chains, snapshots, and nested effects |
+| Response state | `resolutionStack` | Window ownership, passing order, counter chains, snapshots, and nested effects |
 | Outputs and support | `winner`, `auditLog`, `privateNotices`, `randomState`, `nextInteractionSequence` | Results, player-visible history, and deterministic support |
 
 Player IDs, not display names, are stored in the engine. The room layer maps
@@ -67,33 +67,31 @@ one of these locations:
 - hidden resolved `秘密下达` cards;
 - removed `试探` cards;
 - the currently transmitted intelligence.
+- source cards in unresolved response frames.
 
 When the draw pile is empty, public discards and hidden secret orders are
 combined, shuffled with `randomState`, and returned to the draw pile. Removed
 probes and accepted intelligence are not recycled.
 
-### Current resolving-card representation
+### Resolving-card representation
 
-There is no semantic resolving-card zone today. Most played function and
-response cards are immediately placed in `publicDiscard`, even while their
-effect is awaiting responses. Their frame also references the same card ID,
-but the frame is not counted as a physical zone.
+An unresolved played card lives only in its response frame. Frame
+`sourceCardId` values therefore form an explicit resolving physical zone and
+are included in card-conservation checks. They do not appear in discard or any
+other terminal zone until their context settles.
 
-Exceptions have special destinations:
+Settlement moves each resolving card exactly once:
 
-- a played `秘密下达` enters `hiddenSecretOrders` immediately;
-- a played `试探` is moved from temporary public discard to `removedProbes`;
-- the intelligence being transmitted lives at `transmission.cardId`;
-- a successful `公开文本` function card moves from temporary public discard
-  into the target's hand;
-- a successful `掉包` card moves from temporary public discard into
-  `transmission.cardId`, while the replaced intelligence becomes discarded.
+- ordinary function and response cards enter `publicDiscard`;
+- resolved `秘密下达` cards enter `hiddenSecretOrders`, while their counters are
+  publicly discarded;
+- `试探` cards enter `removedProbes`;
+- successful function-card `公开文本` enters the target's hand;
+- successful `掉包` becomes `transmission.cardId`, while the replaced
+  intelligence is publicly discarded.
 
-The player and spectator projections currently hide a pending function-card
-`公开文本` from the displayed discard pile. This projection filter corrects
-the visible behavior but does not change its internal temporary location.
-Replacing this temporary-discard convention is a goal of the planned
-[resolution stack refactor](resolution-stack-refactor.md).
+Player and spectator discard projections directly reflect `publicDiscard`;
+they no longer need a pending-card visibility filter.
 
 ## Turn and phase state machine
 
@@ -134,9 +132,9 @@ while retaining at least one card for transmission.
 - whether the action is countered;
 - whether it is responding or awaiting a target/source choice.
 
-`activeFunctionStack` stores the original function frame followed by any
-`离间` and `识破` frames. Each frame contains a snapshot sufficient to reverse
-the effect immediately when countered. After all responders pass,
+The function `ResolutionContext` stores the original function frame followed
+by any `离间` and `识破` frames. Each frame contains a snapshot sufficient to
+reverse the effect immediately when countered. After all responders pass,
 `finishActiveFunctionAction` either cancels the effect or performs the
 function-specific resolution.
 
@@ -151,7 +149,7 @@ Entering transmission first creates `pendingSecretOrder` in `preTransmission`:
 
 1. Other living players are offered `秘密下达` in seat order.
 2. If one is played, its declared word and server-known color restriction are
-   recorded and a `secretOrderStack` counter chain opens.
+   recorded and a secret-order resolution context opens.
 3. After responses, the active player selects matching intelligence or asks
    the server to verify that no matching card exists.
 4. The active player then starts transmission.
@@ -198,7 +196,7 @@ A countered `调虎离山` instead restores the original intelligence window and
 the response position from which it was played, so players who had already
 passed are not prompted again.
 
-`interactionStack` contains transmission response frames for `截获`, `转移`,
+The receipt resolution context contains response frames for `截获`, `转移`,
 `离间`, `识破`, `锁定`, `掉包`, `调虎离山`, and `破译`. Frames contain a full
 `ReversibleInteractionSnapshot` of receipt-relevant transmission state.
 `调虎离山` also records the original reaction window so a successful counter
@@ -207,42 +205,49 @@ Playing `识破` restores the target frame's snapshot immediately and pushes a
 new counter frame containing the state from before that restoration. This
 supports arbitrary counter depth without parity-specific code.
 
-## Reaction windows
+## Resolution stack and reaction windows
 
-The single global `reactionWindow` identifies:
+`resolutionStack` is the sole authoritative owner of unresolved response
+state. Its top context identifies:
 
+- the domain kind (`receipt`, `function`, `secretOrder`, or `burn`);
 - the window kind;
 - the player affected by the current action;
 - a complete responder order;
 - the index of the current responder.
+- the ordered response frames and whether a paused context is ready to resolve.
 
 Responder order begins with the next living player after the affected player
 and ends with the affected player. All eligible living players are prompted,
 even when the server knows their hand contains no usable response, preserving
 hidden-information timing.
 
-`passReaction` advances the index. When the final responder passes,
+Selectors such as `currentResolutionContext`, `currentReactionWindow`,
+`currentResponseFrames`, and `currentResponderId` expose the active top
+context without duplicating it in `GameState`.
+
+`passReaction` advances the top window's index. When the final responder passes,
 `finishPassedReactionWindow` dispatches by window kind to resolve the pending
-action or advance the receipt/function/secret-order state machine.
+action or advance the receipt/function/secret-order state machine. New windows
+and responder advancement now pass through shared internal primitives; restored
+snapshots retain their saved order and index.
 
 ## Burn nesting
 
 `烧毁` may interrupt an ordinary action or another response window and may
 itself be answered by `识破` or another nested `烧毁`.
 
-Each `BurnContext` owns:
+Each burn resolution context owns:
 
 - the burn source and target intelligence;
-- its countered state and counter frames;
-- a clone of the suspended global reaction window;
-- a flag indicating whether that suspended window became complete while burn
-  was resolving.
+- its countered state;
+- its burn and counter frames;
+- its own reaction window.
 
-`burnContexts` is an array because nested burns can be unresolved
-simultaneously. Resolving the top burn pops it, applies or cancels destruction,
-restores the cloned parent window, and either resumes or completes the parent.
-This works but duplicates continuation ownership across `reactionWindow` and
-the burn context.
+A nested burn pushes another context. The parent context and responder index
+remain untouched below it. Death cleanup can mark a paused parent
+`readyToResolve`; after the top burn pops, the parent either resumes from its
+stored index or resolves immediately. No suspended window clone is needed.
 
 ## Acceptance, death, and victory
 
@@ -303,18 +308,19 @@ Legal actions are generated from authoritative state rather than reconstructed
 by the client. The UI may further group or present them, but submission is still
 validated again at the engine command boundary.
 
-## Current coupling and known debt
+## Current coupling and remaining extension points
 
-The main refactoring pressures are:
+The completed resolution-stack refactor removed the parallel response stores,
+global window field, suspended burn-window clones, and temporary-discard
+convention. Shared window construction, interaction identity allocation,
+passing, projection, and timer selectors now operate through one model.
 
-- four separate frame/context stores with similar counter behavior;
-- a global reaction window whose owner depends on its `kind`;
-- duplicated counter validation and frame construction;
-- `finishPassedReactionWindow` acting as a central kind switch;
-- nested burn requiring cloned suspended windows;
-- projections and server timers selecting stacks with their own kind switches;
-- unresolved cards temporarily living in terminal zones;
-- pending payloads split between transmission, functional, secret-order, and
-  burn structures.
+Domain payloads remain intentionally separate: transmission, function,
+secret-order, and burn rules still have different data and settlement logic.
+`finishPassedReactionWindow` is the explicit dispatch point between those
+domain resolvers. Further unification should happen only when it reduces
+duplication without hiding rule-specific state transitions. See
+[resolution-stack-refactor.md](resolution-stack-refactor.md) for the migration
+record and invariants.
 
 These are implementation concerns, not permission to alter confirmed rules.

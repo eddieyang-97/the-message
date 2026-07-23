@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { PHYSICAL_DECK, type PhysicalCardId } from "./cards";
 import {
+  currentReactionWindow,
   enterTransmissionPhase,
   initializeGame,
   passLockOpportunity,
@@ -13,6 +14,8 @@ import {
   projectGameForPlayer,
   resolveHostImposedDeath,
   startTransmission,
+  type BurnContext,
+  type BurnFrame,
   type GameState,
   type ReactionWindow,
 } from "./engine";
@@ -27,6 +30,16 @@ const unburnableIds = [
   "p5-13",
   "p6-05",
 ] as const satisfies readonly PhysicalCardId[];
+
+function unresolvedBurns(
+  state: GameState,
+): Array<BurnContext & { frames: BurnFrame[] }> {
+  return state.resolutionStack.flatMap((context) =>
+    context.kind === "burn"
+      ? [{ ...context.burn, frames: context.frames }]
+      : [],
+  );
+}
 
 function game(seed = 701): GameState {
   const state = initializeGame(players, seed);
@@ -98,9 +111,9 @@ function acceptedBy(state: GameState, playerId: string, wanted: PhysicalCardId):
 }
 
 function passCurrentWindow(state: GameState): void {
-  const kind = state.reactionWindow?.kind;
-  while (state.reactionWindow?.kind === kind) {
-    const window = state.reactionWindow!;
+  const kind = currentReactionWindow(state)?.kind;
+  while (currentReactionWindow(state)?.kind === kind) {
+    const window = currentReactionWindow(state)!;
     passReaction(state, window.responderOrder[window.nextResponderIndex]);
   }
 }
@@ -142,9 +155,9 @@ describe("烧毁", () => {
     startTransmission(state, "甲", transmitted, { targetId: "乙" });
     passLockOpportunity(state, "甲");
     while (
-      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex] !== "甲"
+      currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex] !== "甲"
     ) {
-      const window = state.reactionWindow;
+      const window = currentReactionWindow(state);
       if (!window) throw new Error("情报响应窗口提前结束");
       passReaction(state, window.responderOrder[window.nextResponderIndex]);
     }
@@ -159,7 +172,7 @@ describe("烧毁", () => {
     playBurn(state, "甲", burn, "丁", intelligence);
 
     expect(state.players["甲"].hand).toEqual([]);
-    expect(state.reactionWindow?.kind).toBe("burn");
+    expect(currentReactionWindow(state)?.kind).toBe("burn");
   });
 
   it("传递开始后允许行动玩家在烧毁链中使用最后一张识破", () => {
@@ -179,14 +192,14 @@ describe("烧毁", () => {
     passLockOpportunity(state, "甲");
 
     expect(
-      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex],
+      currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
     ).toBe("丙");
     playBurn(state, "丙", burn, "丁", intelligence);
     expect(
-      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex],
+      currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
     ).toBe("戊");
     passReaction(state, "戊");
-    const burnFrame = state.burnContexts.at(-1)!.frames.at(-1)!;
+    const burnFrame = unresolvedBurns(state).at(-1)!.frames.at(-1)!;
 
     expect(state.players["甲"].hand).toEqual([counter]);
     expect(projectGameForPlayer(state, "甲").legalActions).toContainEqual({
@@ -197,7 +210,7 @@ describe("烧毁", () => {
     playCounter(state, "甲", counter, burnFrame.id);
 
     expect(state.players["甲"].hand).toEqual([]);
-    expect(state.burnContexts.at(-1)?.countered).toBe(true);
+    expect(unresolvedBurns(state).at(-1)?.countered).toBe(true);
   });
 
   it("在行动阶段烧毁存活玩家可烧毁的已接收黑色情报", () => {
@@ -287,9 +300,9 @@ describe("烧毁", () => {
     acceptedBy(state, "乙", intelligence);
 
     playBurn(state, "甲", burn, "乙", intelligence);
-    const burnFrame = state.burnContexts.at(-1)!.frames.at(-1)!;
+    const burnFrame = unresolvedBurns(state).at(-1)!.frames.at(-1)!;
     playCounter(state, "丙", counter1, burnFrame.id);
-    const firstCounter = state.burnContexts.at(-1)!.frames.at(-1)!;
+    const firstCounter = unresolvedBurns(state).at(-1)!.frames.at(-1)!;
     playCounter(state, "乙", counter2, firstCounter.id);
     expect(state.auditLog.at(-1)).toBe("乙使用识破，反制丙的识破");
     passCurrentWindow(state);
@@ -306,7 +319,7 @@ describe("烧毁", () => {
     inHand(state, "丙", counter);
     acceptedBy(state, "乙", intelligence);
     playBurn(state, "甲", burn, "乙", intelligence);
-    playCounter(state, "丙", counter, state.burnContexts.at(-1)!.frames[0].id);
+    playCounter(state, "丙", counter, unresolvedBurns(state).at(-1)!.frames[0].id);
     passCurrentWindow(state);
     expect(state.players["乙"].intelligence).toContain(intelligence);
   });
@@ -320,12 +333,12 @@ describe("烧毁", () => {
     inHand(state, "丙", burn);
     acceptedBy(state, "丁", intelligence);
     playPublicText(state, "甲", publicText, "乙");
-    const suspended: ReactionWindow = structuredClone(state.reactionWindow!);
+    const suspended: ReactionWindow = structuredClone(currentReactionWindow(state)!);
 
     playBurn(state, "丙", burn, "丁", intelligence);
     passCurrentWindow(state);
 
-    expect(state.reactionWindow).toEqual(suspended);
+    expect(currentReactionWindow(state)).toEqual(suspended);
     expect(state.activeFunctionAction?.kind).toBe("publicText");
   });
 
@@ -342,9 +355,9 @@ describe("烧毁", () => {
     acceptedBy(state, "丁", intelligence);
     play(state, "甲", functionCard, "乙");
     while (
-      state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex] !== "乙"
+      currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex] !== "乙"
     ) {
-      const window = state.reactionWindow;
+      const window = currentReactionWindow(state);
       if (!window) throw new Error("功能牌响应窗口提前结束");
       passReaction(state, window.responderOrder[window.nextResponderIndex]);
     }
@@ -365,12 +378,12 @@ describe("烧毁", () => {
     inHand(state, "乙", burn);
     acceptedBy(state, "丙", intelligence);
     enterTransmissionPhase(state, "甲");
-    const suspended = structuredClone(state.reactionWindow!);
+    const suspended = structuredClone(currentReactionWindow(state)!);
 
     playBurn(state, "乙", burn, "丙", intelligence);
     passCurrentWindow(state);
 
-    expect(state.reactionWindow).toEqual(suspended);
+    expect(currentReactionWindow(state)).toEqual(suspended);
     expect(state.pendingSecretOrder?.stage).toBe("offering");
   });
 
@@ -388,12 +401,12 @@ describe("烧毁", () => {
     passCurrentWindow(state);
     startTransmission(state, "甲", transmitted, { targetId: "乙" });
     passLockOpportunity(state, "甲");
-    const suspended = structuredClone(state.reactionWindow!);
+    const suspended = structuredClone(currentReactionWindow(state)!);
 
     playBurn(state, "丙", burn, "丁", intelligence);
     passCurrentWindow(state);
 
-    expect(state.reactionWindow).toEqual(suspended);
+    expect(currentReactionWindow(state)).toEqual(suspended);
     expect(state.transmission?.receiptStage).toBe("reactions");
   });
 
@@ -407,18 +420,18 @@ describe("烧毁", () => {
     acceptedBy(state, "乙", intelligence);
 
     playBurn(state, "甲", burn1, "乙", intelligence);
-    const outer = structuredClone(state.reactionWindow!);
+    const outer = structuredClone(currentReactionWindow(state)!);
     playBurn(state, "丙", burn2, "乙", intelligence);
-    while (state.burnContexts.length === 2) {
-      const window = state.reactionWindow!;
+    while (unresolvedBurns(state).length === 2) {
+      const window = currentReactionWindow(state)!;
       passReaction(state, window.responderOrder[window.nextResponderIndex]);
     }
-    expect(state.reactionWindow).toEqual(outer);
+    expect(currentReactionWindow(state)).toEqual(outer);
     passCurrentWindow(state);
 
     expect(state.players["乙"].intelligence).not.toContain(intelligence);
     expect(state.publicDiscard.filter((id) => id === intelligence)).toHaveLength(1);
-    expect(state.burnContexts).toHaveLength(0);
+    expect(unresolvedBurns(state)).toHaveLength(0);
   });
 
   it("强制死亡会修剪烧毁及其暂停窗口中的响应顺序", () => {
@@ -433,10 +446,10 @@ describe("烧毁", () => {
     playBurn(state, "丙", burn, "丁", intelligence);
 
     resolveHostImposedDeath(state, "戊");
-    expect(state.reactionWindow?.responderOrder).not.toContain("戊");
+    expect(currentReactionWindow(state)?.responderOrder).not.toContain("戊");
     passCurrentWindow(state);
-    expect(state.reactionWindow?.kind).toBe("function");
-    expect(state.reactionWindow?.responderOrder).not.toContain("戊");
+    expect(currentReactionWindow(state)?.kind).toBe("function");
+    expect(currentReactionWindow(state)?.responderOrder).not.toContain("戊");
     expect(state.players["丁"].intelligence).not.toContain(intelligence);
   });
 
@@ -452,7 +465,7 @@ describe("烧毁", () => {
     passCurrentWindow(state);
 
     expect(state.players["乙"].intelligence).toContain(intelligence);
-    expect(state.burnContexts).toHaveLength(0);
+    expect(unresolvedBurns(state)).toHaveLength(0);
   });
 
   it("死亡使暂停窗口已全部通过时，恢复后自动递归结算而不重开优先级", () => {
@@ -469,7 +482,7 @@ describe("烧毁", () => {
 
     for (const responder of ["丙", "丁", "戊", "甲"] as const) {
       expect(
-        state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex],
+        currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
       ).toBe(responder);
       passReaction(state, responder);
     }
@@ -477,8 +490,8 @@ describe("烧毁", () => {
     resolveHostImposedDeath(state, "乙");
     passCurrentWindow(state);
 
-    expect(state.reactionWindow).toBeUndefined();
-    expect(state.burnContexts).toHaveLength(0);
+    expect(currentReactionWindow(state)).toBeUndefined();
+    expect(unresolvedBurns(state)).toHaveLength(0);
     expect(state.players["乙"].intelligence).toContain(outerIntelligence);
     expect(state.players["丙"].intelligence).not.toContain(innerIntelligence);
   });
@@ -496,8 +509,8 @@ describe("烧毁", () => {
 
     resolveHostImposedDeath(state, "乙");
 
-    expect(state.burnContexts).toHaveLength(0);
-    expect(state.reactionWindow).toBeUndefined();
+    expect(unresolvedBurns(state)).toHaveLength(0);
+    expect(currentReactionWindow(state)).toBeUndefined();
     expect(state.activeFunctionAction).toBeUndefined();
     expect(state.players["丁"].intelligence).toContain(intelligence);
     expect(state.publicDiscard).toContain(burn);

@@ -1,4 +1,8 @@
-import { factionsForPlayerCount, type WinnerState } from "../game/engine";
+import {
+  currentReactionWindow,
+  factionsForPlayerCount,
+  type WinnerState,
+} from "../game/engine";
 import { chooseBotCommand, chooseBotDecision, createBotMemory, createSeededBotRandom, factionBeliefsForPolicy, LIVE_BOT_POLICY, type BotDecision, type BotMemory, type BotPolicy, type FactionBelief } from "../server/bot/strategy";
 import { GameSessionService, type GameCommand } from "../server/game-session";
 import { CANDIDATE_V8 } from "./policies";
@@ -306,6 +310,7 @@ function summarizeGame(
   lastRejection?: string,
 ): SelfPlayGameResult {
   const state = games.getState(roomCode);
+  const reactionWindow = currentReactionWindow(state);
   return {
     seed: options.seed,
     playerCount: options.playerCount,
@@ -316,7 +321,7 @@ function summarizeGame(
     rejectedCommands,
     status,
     finalPhase: state.phase,
-    waitingFor: state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex]
+    waitingFor: reactionWindow?.responderOrder[reactionWindow.nextResponderIndex]
       ?? state.pendingSecretOrder?.targetPlayerId
       ?? state.activePlayerId,
     lastPublicEvent: state.auditLog.at(-1),

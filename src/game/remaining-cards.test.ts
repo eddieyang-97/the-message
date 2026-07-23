@@ -7,9 +7,11 @@ import {
   type SecretOrderWord,
 } from "./cards";
 import {
+  currentReactionWindow,
   chooseProbeDiscard,
   chooseProbeIdentityResponse,
   claimNoSecretOrderMatch,
+  currentResponseFrames,
   enterTransmissionPhase,
   initializeGame,
   passLockOpportunity,
@@ -20,6 +22,7 @@ import {
   playSecretOrder,
   projectGameForPlayer,
   startTransmission,
+  topResponseFrame,
   type GameState,
 } from "./engine";
 
@@ -55,22 +58,22 @@ function putInHand(state: GameState, playerId: string, wanted: PhysicalCardId, i
 }
 
 function passAll(state: GameState): void {
-  while (state.reactionWindow) {
+  while (currentReactionWindow(state)) {
     passReaction(
       state,
-      state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex],
+      currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
     );
   }
 }
 
 function passUntil(state: GameState, playerId: string): void {
   while (
-    state.reactionWindow &&
-    state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex] !== playerId
+    currentReactionWindow(state) &&
+    currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex] !== playerId
   ) {
     passReaction(
       state,
-      state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex],
+      currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
     );
   }
 }
@@ -184,7 +187,7 @@ describe("破译", () => {
     passLockOpportunity(state, "甲");
     passUntil(state, "乙");
     playDecrypt(state, "乙", decrypt);
-    const frame = state.interactionStack.at(-1)!;
+    const frame = currentResponseFrames(state).at(-1)!;
     passUntil(state, "丙");
     playCounter(state, "丙", counter, frame.id);
     passAll(state);
@@ -231,9 +234,9 @@ describe("秘密下达", () => {
     enterTransmissionPhase(state, "甲");
     playSecretOrder(state, "乙", orderId, "听风");
     passReaction(state, "乙");
-    playCounter(state, "丙", counterOne, state.secretOrderStack.at(-1)!.id);
+    playCounter(state, "丙", counterOne, topResponseFrame(state)!.id);
     passReaction(state, "丙");
-    playCounter(state, "丁", counterTwo, state.secretOrderStack.at(-1)!.id);
+    playCounter(state, "丁", counterTwo, topResponseFrame(state)!.id);
 
     expect(state.auditLog.at(-1)).toBe("丁使用识破，反制丙的识破");
   });
@@ -243,7 +246,7 @@ describe("秘密下达", () => {
 
     enterTransmissionPhase(state, "甲");
 
-    expect(state.reactionWindow?.responderOrder).toEqual(["乙", "丙", "丁", "戊"]);
+    expect(currentReactionWindow(state)?.responderOrder).toEqual(["乙", "丙", "丁", "戊"]);
     expect(projectGameForPlayer(state, "甲").legalActions).not.toContainEqual({
       type: "PASS_REACTION",
     });

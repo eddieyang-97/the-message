@@ -4,7 +4,7 @@ import {
   PHYSICAL_DECK,
   type PhysicalCardId,
 } from "../game/cards";
-import type { GameState } from "../game/engine";
+import { currentReactionWindow, currentResolutionContext, type GameState } from "../game/engine";
 import { GameSessionError, GameSessionService } from "./game-session";
 
 const players = ["甲", "乙", "丙", "丁", "戊"];
@@ -112,14 +112,14 @@ describe("GameSessionService", () => {
       locked: true,
       lockedRecipientId: redirectedTargetId,
     });
-    expect(state.reactionWindow).toMatchObject({
+    expect(currentReactionWindow(state)).toMatchObject({
       kind: "lock",
       affectedPlayerId: redirectedTargetId,
     });
 
-    while (state.reactionWindow) {
+    while (currentReactionWindow(state)) {
       const responderId =
-        state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex];
+        currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex];
       sessions.dispatch("ABCDEF", responderId, { type: "PASS_REACTION" });
     }
     expect(sessions.project("ABCDEF", recipientId).legalActions).toEqual([
@@ -206,12 +206,12 @@ describe("GameSessionService", () => {
     });
     transferSessions.dispatch("GHIJKL", senderId, { type: "PASS_LOCK" });
     while (
-      transferState.reactionWindow?.responderOrder[
-        transferState.reactionWindow.nextResponderIndex
+      currentReactionWindow(transferState)?.responderOrder[
+        currentReactionWindow(transferState)!.nextResponderIndex
       ] !== recipientId
     ) {
-      const responderId = transferState.reactionWindow!.responderOrder[
-        transferState.reactionWindow!.nextResponderIndex
+      const responderId = currentReactionWindow(transferState)!.responderOrder[
+        currentReactionWindow(transferState)!.nextResponderIndex
       ];
       transferSessions.dispatch("GHIJKL", responderId, {
         type: "PASS_REACTION",
@@ -322,7 +322,8 @@ describe("GameSessionService", () => {
     );
     const projection = sessions.dispatch("ABCDEF", actorId, command);
     expect(projection.reactionWindow).toMatchObject({ kind: "burn" });
-    expect(state.burnContexts.at(-1)).toMatchObject({
+    const burnContext = currentResolutionContext(state);
+    expect(burnContext?.kind === "burn" ? burnContext.burn : undefined).toMatchObject({
       sourcePlayerId: actorId,
       targetPlayerId,
       targetIntelligenceCardId: intelligence.id,

@@ -1,6 +1,6 @@
 # Resolution stack refactor
 
-Status: proposed design; not current behavior.
+Status: completed on 2026-07-23.
 
 This document proposes a behavior-preserving refactor of the interaction state
 described in [game-engine-architecture.md](game-engine-architecture.md). It does
@@ -335,3 +335,63 @@ Stop and separate a change from this refactor if it requires deciding:
 
 Those decisions belong in their own rule/product change with independent tests
 and review.
+
+## Implementation record
+
+### 2026-07-23: read-model boundary started
+
+The first Phase 2 slice was implemented without changing `GameState` storage:
+
+- `currentResolutionContext`, `currentReactionWindow`,
+  `currentResponseFrames`, `topResponseFrame`, `currentResponderId`, and
+  `currentPromptFingerprint` now provide a single read boundary over the
+  legacy fields;
+- player and spectator projection select response frames through this boundary;
+- the server reaction-timeout scheduler no longer reads raw engine stack fields;
+- characterization tests cover empty state, receipt, function, secret-order,
+  nested-burn, public response-stack projection, and legacy timer fingerprints.
+
+At this checkpoint mutation, invariant, and resolution code still wrote and
+validated the legacy parallel fields. `resolutionStack` had not yet been
+introduced.
+
+### 2026-07-23: reaction-window primitives centralized
+
+The second Phase 2 slice preserves the same window data and continuations while
+removing scattered construction and pass advancement:
+
+- every new reaction window is created through one builder/opening primitive;
+- ordinary target-anchored windows and explicit secret-order responder lists
+  share the same construction path;
+- `passReaction` validates the actor and delegates responder advancement and
+  completion to one primitive;
+- cloned/restored windows retain their existing responder index and still bypass
+  new-window construction as intended.
+
+At this checkpoint legacy domain resolvers still owned completion after the
+last pass.
+
+### 2026-07-23: authoritative stack migration completed
+
+Phases 3 through 7 are complete:
+
+- `GameState.resolutionStack` is the sole owner of active reaction windows and
+  response frames for receipt, function, secret-order, and burn domains;
+- the legacy `reactionWindow`, `interactionStack`, `activeFunctionStack`,
+  `secretOrderStack`, and `burnContexts` state fields have been removed;
+- nested burns push contexts above their parent rather than cloning and
+  suspending a global window;
+- shared interaction IDs, window creation/restoration, passing, projections,
+  and server timeout fingerprints all select from the authoritative stack;
+- unresolved frame `sourceCardId` values form a real physical resolving zone;
+  resolving cards no longer enter public discard, hidden secret-order storage,
+  or removed-probe storage before settlement;
+- context settlement moves every resolving card exactly once to its rule-defined
+  destination, including countered and death-cleanup paths;
+- invariants enforce global frame/card uniqueness, context/window agreement,
+  stack nesting shape, and an empty stack at game end;
+- characterization, engine, server/session boundary, projection, and timer
+  tests were migrated to the selector boundary.
+
+The implemented shape preserves command payloads, response order, public and
+private information, log wording, timeout behavior, and game rules.

@@ -9,10 +9,13 @@ import {
   type PhysicalCardId,
 } from "../game/cards";
 import {
+  currentReactionWindow,
+  currentResolutionContext,
   enterTransmissionPhase,
   passLockOpportunity,
   passReaction,
   startTransmission,
+  topResponseFrame,
   type GameState,
   type PlayerProjection,
 } from "../game/engine";
@@ -183,12 +186,12 @@ describe("game server sessions", () => {
     });
     expect(burnResult).toMatchObject({ ok: true });
     expect(state.players[activeId].hand).toEqual([remaining.id]);
-    expect(state.reactionWindow).toMatchObject({
+    expect(currentReactionWindow(state)).toMatchObject({
       kind: "burn",
       affectedPlayerId: activeId,
     });
 
-    const burnFrame = state.burnContexts.at(-1)!.frames.at(-1)!;
+    const burnFrame = topResponseFrame(state)!;
     const counterResult = await emitRawAck(socketsByPlayer.get(opponentId)!, "game:command", {
       command: {
         type: "PLAY_COUNTER",
@@ -197,11 +200,12 @@ describe("game server sessions", () => {
       },
     });
     expect(counterResult).toMatchObject({ ok: true });
-    expect(state.burnContexts.at(-1)?.countered).toBe(true);
+    const burnContext = currentResolutionContext(state);
+    expect(burnContext?.kind === "burn" && burnContext.burn?.countered).toBe(true);
 
-    while (state.reactionWindow?.kind === "burn") {
-      const responderId = state.reactionWindow.responderOrder[
-        state.reactionWindow.nextResponderIndex
+    while (currentReactionWindow(state)?.kind === "burn") {
+      const responderId = currentReactionWindow(state)!.responderOrder[
+        currentReactionWindow(state)!.nextResponderIndex
       ];
       expect(await emitRawAck(socketsByPlayer.get(responderId)!, "game:command", {
         command: { type: "PASS_REACTION" },
@@ -573,9 +577,9 @@ describe("game server sessions", () => {
     await emitAck(commandSocket(senderId), "game:command", {
       command: { type: "PASS_LOCK" },
     });
-    while (state.reactionWindow) {
+    while (currentReactionWindow(state)) {
       const responderId =
-        state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex];
+        currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex];
       await emitAck(commandSocket(responderId), "game:command", {
         command: { type: "PASS_REACTION" },
       });
@@ -603,7 +607,7 @@ describe("game server sessions", () => {
     server = createGameServer({ gameSeedGenerator: () => 82, botDelayMs: 60_000 });
     const fixture = await createTransferBoundaryFixture(server, sockets);
 
-    expect(fixture.state.reactionWindow?.kind).toBe("transfer");
+    expect(currentReactionWindow(fixture.state)?.kind).toBe("transfer");
     expect(await emitRawAck(fixture.reactorSocket, "game:command", {
       command: { type: "PLAY_SWAP", cardId: fixture.swapCardId },
     })).toMatchObject({ ok: false });
@@ -622,7 +626,7 @@ describe("game server sessions", () => {
 
     await passTransferWindowThroughServer(fixture);
 
-    expect(fixture.state.reactionWindow).toMatchObject({
+    expect(currentReactionWindow(fixture.state)).toMatchObject({
       kind: "intelligence",
       affectedPlayerId: fixture.transferredTargetId,
     });
@@ -638,7 +642,7 @@ describe("game server sessions", () => {
     });
 
     expect(accepted).toMatchObject({ ok: true });
-    expect(fixture.state.reactionWindow?.kind).toBe("swap");
+    expect(currentReactionWindow(fixture.state)?.kind).toBe("swap");
     expect(fixture.state.transmission).toMatchObject({
       intendedRecipientId: fixture.transferredTargetId,
       transferredRecipientCommitted: true,
@@ -650,14 +654,14 @@ describe("game server sessions", () => {
     server = createGameServer({ gameSeedGenerator: () => 83, botDelayMs: 60_000 });
     const fixture = await createTransferBoundaryFixture(server, sockets);
 
-    expect(fixture.state.reactionWindow?.kind).toBe("transfer");
+    expect(currentReactionWindow(fixture.state)?.kind).toBe("transfer");
     expect(await emitRawAck(fixture.reactorSocket, "game:command", {
       command: { type: "PLAY_INTERCEPT", cardId: fixture.interceptCardId },
     })).toMatchObject({ ok: false });
 
     await passTransferWindowThroughServer(fixture);
 
-    expect(fixture.state.reactionWindow).toMatchObject({
+    expect(currentReactionWindow(fixture.state)).toMatchObject({
       kind: "intelligence",
       affectedPlayerId: fixture.transferredTargetId,
     });
@@ -669,7 +673,7 @@ describe("game server sessions", () => {
     });
 
     expect(accepted).toMatchObject({ ok: true });
-    expect(fixture.state.reactionWindow).toMatchObject({
+    expect(currentReactionWindow(fixture.state)).toMatchObject({
       kind: "intelligence",
       affectedPlayerId: fixture.reactorId,
     });
@@ -693,8 +697,8 @@ describe("game server sessions", () => {
     });
 
     expect(accepted).toMatchObject({ ok: true });
-    expect(fixture.state.reactionWindow?.kind).toBe("transfer");
-    expect(fixture.state.interactionStack.at(-1)).toMatchObject({
+    expect(currentReactionWindow(fixture.state)?.kind).toBe("transfer");
+    expect(topResponseFrame(fixture.state)).toMatchObject({
       kind: "counter",
       sourcePlayerId: fixture.reactorId,
     });
@@ -703,7 +707,7 @@ describe("game server sessions", () => {
 
     await passTransferWindowThroughServer(fixture);
 
-    expect(fixture.state.reactionWindow).toBeUndefined();
+    expect(currentReactionWindow(fixture.state)).toBeUndefined();
     expect(fixture.state.transmission).toMatchObject({
       intendedRecipientId: fixture.originalRecipientId,
       receiptStage: "decision",
@@ -771,10 +775,10 @@ async function createTransferBoundaryFixture(
   );
 
   enterTransmissionPhase(state, senderId);
-  while (state.reactionWindow) {
+  while (currentReactionWindow(state)) {
     passReaction(
       state,
-      state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex],
+      currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
     );
   }
   startTransmission(state, senderId, intelligence.id as PhysicalCardId, {
@@ -782,7 +786,7 @@ async function createTransferBoundaryFixture(
   });
   passLockOpportunity(state, senderId);
   while (true) {
-    const window = state.reactionWindow as NonNullable<GameState["reactionWindow"]> | undefined;
+    const window = currentReactionWindow(state);
     if (!window) throw new Error("Expected initial intelligence reaction window");
     const responderId = window.responderOrder[window.nextResponderIndex];
     if (responderId === originalRecipientId) break;
@@ -796,7 +800,7 @@ async function createTransferBoundaryFixture(
     },
   });
   expect(transferAccepted).toMatchObject({ ok: true });
-  expect(state.reactionWindow).toMatchObject({
+  expect(currentReactionWindow(state)).toMatchObject({
     kind: "transfer",
     affectedPlayerId: transferredTargetId,
   });
@@ -816,9 +820,9 @@ async function createTransferBoundaryFixture(
 }
 
 async function passTransferWindowThroughServer(fixture: TransferBoundaryFixture): Promise<void> {
-  while (fixture.state.reactionWindow?.kind === "transfer") {
-    const responderId = fixture.state.reactionWindow.responderOrder[
-      fixture.state.reactionWindow.nextResponderIndex
+  while (currentReactionWindow(fixture.state)?.kind === "transfer") {
+    const responderId = currentReactionWindow(fixture.state)!.responderOrder[
+      currentReactionWindow(fixture.state)!.nextResponderIndex
     ];
     await emitAck<PlayerProjection>(fixture.socketsByPlayer.get(responderId)!, "game:command", {
       command: { type: "PASS_REACTION" },

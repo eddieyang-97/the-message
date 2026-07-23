@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { PHYSICAL_DECK, type Faction, type PhysicalCardId } from "./cards";
 import {
+  currentReactionWindow,
   acceptIntelligence,
   choosePublicTextReceiptDiscard,
   choosePublicTextReceiptEffect,
@@ -84,9 +85,9 @@ function acceptPublicText(state: GameState, cardId: PhysicalCardId): void {
   if (state.transmission?.receiptStage === "lockOffer") {
     passLockOpportunity(state, "甲");
   }
-  while (state.reactionWindow) {
+  while (currentReactionWindow(state)) {
     const responder =
-      state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex];
+      currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex];
     passReaction(state, responder);
   }
   acceptIntelligence(state, "乙");

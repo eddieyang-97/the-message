@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { PHYSICAL_DECK, type PhysicalCardId } from "./cards";
 import {
+  currentReactionWindow,
   chooseDangerousIntelligenceDiscard,
   initializeGame,
   passReaction,
@@ -14,6 +15,7 @@ import {
   playSeparationOnFunction,
   projectGameForPlayer,
   projectGameForSpectator,
+  topResponseFrame,
   type GameState,
 } from "./engine";
 
@@ -90,10 +92,10 @@ function moveToIntelligence(
 }
 
 function passAll(state: GameState): void {
-  while (state.reactionWindow) {
+  while (currentReactionWindow(state)) {
     passReaction(
       state,
-      state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex],
+      currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
     );
   }
 }
@@ -153,7 +155,7 @@ describe("行动阶段功能牌框架", () => {
     playPublicText(state, "甲", publicText, "乙");
     const targetHandBefore = [...state.players["乙"].hand];
 
-    expect(state.reactionWindow?.responderOrder).toEqual([
+    expect(currentReactionWindow(state)?.responderOrder).toEqual([
       "丙",
       "丁",
       "戊",
@@ -201,7 +203,8 @@ describe("行动阶段功能牌框架", () => {
 
     playPublicText(state, "甲", publicText, "乙");
 
-    expect(state.publicDiscard).toContain(publicText);
+    expect(state.publicDiscard).not.toContain(publicText);
+    expect(topResponseFrame(state)?.sourceCardId).toBe(publicText);
     for (const viewerId of players) {
       expect(projectGameForPlayer(state, viewerId).publicDiscard.map((card) => card.id))
         .not.toContain(publicText);
@@ -209,7 +212,7 @@ describe("行动阶段功能牌框架", () => {
     expect(projectGameForSpectator(state).publicDiscard.map((card) => card.id))
       .not.toContain(publicText);
 
-    const interactionId = state.activeFunctionStack.at(-1)?.id;
+    const interactionId = topResponseFrame(state)?.id;
     if (!interactionId) throw new Error("缺少公开文本互动帧");
     playCounter(state, "丙", counter, interactionId);
     passAll(state);
@@ -230,7 +233,7 @@ describe("行动阶段功能牌框架", () => {
     const handBefore = counterState.players["甲"].hand.length;
 
     playReinforcement(counterState, "甲", reinforcement);
-    const interactionId = counterState.activeFunctionStack.at(-1)?.id;
+    const interactionId = topResponseFrame(counterState)?.id;
     if (!interactionId) throw new Error("缺少功能牌互动帧");
     playCounter(counterState, "乙", counter, interactionId);
     passAll(counterState);
@@ -254,7 +257,7 @@ describe("行动阶段功能牌框架", () => {
       "丁",
     );
     expect(separationState.activeFunctionAction?.targetPlayerId).toBe("丁");
-    expect(separationState.reactionWindow?.responderOrder).toEqual([
+    expect(currentReactionWindow(separationState)?.responderOrder).toEqual([
       "戊",
       "甲",
       "乙",

@@ -1,5 +1,9 @@
 import type { ReactionTimeoutSeconds } from "../room";
-import type { GameState } from "../game/engine";
+import {
+  currentPromptFingerprint,
+  currentReactionWindow,
+  currentResponderId,
+} from "../game/engine";
 import type { GameCommand, GameSessionService } from "./game-session";
 
 export interface ReactionTimerSnapshot {
@@ -117,12 +121,12 @@ export class ReactionTimeoutScheduler {
     if (!this.options.gameSessions.has(roomCode)) return undefined;
     const state = this.options.gameSessions.getState(roomCode);
     if (state.phase === "gameOver") return undefined;
-    const window = state.reactionWindow;
+    const window = currentReactionWindow(state);
     if (window) {
-      const actorId = window.responderOrder[window.nextResponderIndex];
+      const actorId = currentResponderId(state);
       if (!actorId) return undefined;
       return {
-        fingerprint: reactionFingerprint(state, actorId),
+        fingerprint: currentPromptFingerprint(state)!,
         actorId,
         command: { type: "PASS_REACTION" },
       };
@@ -130,7 +134,7 @@ export class ReactionTimeoutScheduler {
     const transmission = state.transmission;
     if (transmission?.receiptStage === "lockOffer") {
       return {
-        fingerprint: `lock:${transmission.receiptCycle}:${transmission.senderId}:${transmission.intendedRecipientId}`,
+        fingerprint: currentPromptFingerprint(state)!,
         actorId: transmission.senderId,
         command: { type: "PASS_LOCK" },
       };
@@ -212,21 +216,4 @@ export class ReactionTimeoutScheduler {
       paused: scheduled.paused,
     };
   }
-}
-
-function reactionFingerprint(state: GameState, actorId: string): string {
-  const window = state.reactionWindow!;
-  const topInteraction =
-    window.kind === "function"
-      ? state.activeFunctionStack.at(-1)?.id
-      : state.interactionStack.at(-1)?.id;
-  return [
-    "reaction",
-    window.kind,
-    state.transmission?.receiptCycle ?? "-",
-    state.activeFunctionAction?.sourceCardId ?? "-",
-    topInteraction ?? "-",
-    window.nextResponderIndex,
-    actorId,
-  ].join(":");
 }

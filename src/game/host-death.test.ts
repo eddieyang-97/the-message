@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { PHYSICAL_DECK, type PhysicalCard, type PhysicalCardId } from "./cards";
 import {
+  currentReactionWindow,
   acceptIntelligence,
   enterTransmissionPhase,
   initializeGame,
@@ -49,10 +50,10 @@ function putInHand(state: GameState, playerId: string, wanted: PhysicalCardId, i
 }
 
 function passAll(state: GameState): void {
-  while (state.reactionWindow) {
+  while (currentReactionWindow(state)) {
     passReaction(
       state,
-      state.reactionWindow.responderOrder[state.reactionWindow.nextResponderIndex],
+      currentReactionWindow(state)!.responderOrder[currentReactionWindow(state)!.nextResponderIndex],
     );
   }
 }
@@ -113,13 +114,13 @@ describe("房主判定断线玩家死亡", () => {
     const reinforcement = findCard((card) => card.name === "增援");
     putInHand(state, "甲", reinforcement);
     playReinforcement(state, "甲", reinforcement);
-    expect(state.reactionWindow?.responderOrder[0]).toBe("乙");
+    expect(currentReactionWindow(state)?.responderOrder[0]).toBe("乙");
 
     resolveHostImposedDeath(state, "乙");
 
     expect(state.players["乙"]).toMatchObject({ alive: false, factionRevealed: true });
-    expect(state.reactionWindow?.responderOrder).not.toContain("乙");
-    expect(state.reactionWindow?.responderOrder[state.reactionWindow.nextResponderIndex]).toBe("丙");
+    expect(currentReactionWindow(state)?.responderOrder).not.toContain("乙");
+    expect(currentReactionWindow(state)?.responderOrder[currentReactionWindow(state)!.nextResponderIndex]).toBe("丙");
     expect(state.auditLog.some((entry) => entry.includes("乙被房主判定死亡"))).toBe(true);
     passAll(state);
   });
@@ -179,7 +180,7 @@ describe("房主判定断线玩家死亡", () => {
     putInHand(state, "丙", intercept);
     startTransmission(state, "甲", intelligence, { targetId: "乙" });
     passLockOpportunity(state, "甲");
-    expect(state.reactionWindow?.responderOrder[0]).toBe("丙");
+    expect(currentReactionWindow(state)?.responderOrder[0]).toBe("丙");
     playIntercept(state, "丙", intercept);
 
     resolveHostImposedDeath(state, "丙");
@@ -198,7 +199,7 @@ describe("房主判定断线玩家死亡", () => {
     resolveHostImposedDeath(state, "乙");
 
     expect(state.activeFunctionAction).toBeUndefined();
-    expect(state.reactionWindow).toBeUndefined();
+    expect(currentReactionWindow(state)).toBeUndefined();
     expect(state.removedProbes).toContain(probe);
     expect(state.phase).toBe("initialized");
   });
@@ -218,7 +219,7 @@ describe("房主判定断线玩家死亡", () => {
       countered: true,
       targetPlayerId: "甲",
     });
-    expect(state.reactionWindow).toBeUndefined();
+    expect(currentReactionWindow(state)).toBeUndefined();
   });
 
   it("公开文本接收后的必选效果因接收者死亡而取消并结束回合", () => {
