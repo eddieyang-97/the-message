@@ -284,7 +284,21 @@ function ResponsePanel({
         title="拖动调整位置；双击复位"
       >
         <span>局势焦点 <i aria-hidden="true">⠿</i></span>
-        {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
+        <span className="response-panel__controls">
+          {reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
+          {(offset.x !== 0 || offset.y !== 0) && (
+            <button
+              aria-label="复位局势焦点位置"
+              onClick={() => onOffsetChange({ x: 0, y: 0 })}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              title="复位位置"
+              type="button"
+            >
+              复位
+            </button>
+          )}
+        </span>
       </div>
       <p className="response-panel__context">{focusContext}</p>
       <strong className="response-panel__action">{focusAction}</strong>
@@ -652,6 +666,31 @@ export function promptTitle(projection: PlayerProjection): string {
   return projection.activePlayerId === projection.own.id ? "你的行动阶段" : "请选择操作";
 }
 
+export function promptDescription(projection: PlayerProjection): string {
+  const actions = projection.legalActions;
+  if (
+    projection.phase === "preTransmission" &&
+    projection.pendingSecretOrder?.stage === "selection" &&
+    projection.activePlayerId === projection.own.id &&
+    !projection.reactionWindow
+  ) {
+    return "请选择一张高亮情报牌；选中后再确认传递方式和目标。";
+  }
+  if (actions.length === 0) return "当前无需操作，状态变化后会自动更新。";
+  if (projection.reactionWindow) return "可使用高亮手牌，或选择下方的可用操作。";
+  if (actions.some((action) => action.type === "DISCARD_FOR_HAND_LIMIT")) {
+    return "请选择一张高亮手牌完成弃置。";
+  }
+  if (projection.activePlayerId === projection.own.id) {
+    return "选择可用操作；需要手牌时请点击高亮牌。";
+  }
+  return "请选择一项可用操作。";
+}
+
+export function isSecondaryPromptAction(action: ProjectedLegalAction): boolean {
+  return action.type.startsWith("PASS_") || action.type === "DECLINE_INTELLIGENCE";
+}
+
 const REACTION_WINDOW_LABELS: Record<ProjectedReactionKind, string> = {
   intelligence: "情报传递",
   transfer: "转移",
@@ -810,6 +849,8 @@ export function GameTable({
   const playableCardIds = useMemo(() => new Set(actions.map(actionCardId).filter((id): id is string => Boolean(id))), [actions]);
   const selectedActions = selectedCardId ? actions.filter((action) => actionCardId(action) === selectedCardId) : [];
   const visiblePromptActions = promptActions(actions, selectedCardId);
+  const primaryPromptActions = visiblePromptActions.filter((action) => !isSecondaryPromptAction(action));
+  const secondaryPromptActions = visiblePromptActions.filter(isSecondaryPromptAction);
   const inspectedHand = inspectedHandForProjection(projection);
   const selectedBurnActions = selectedCardId
     ? (actions as readonly GameCommand[]).filter(
@@ -1271,8 +1312,13 @@ export function GameTable({
             ) : null}
           </div>
 
-          <section className="prompt-panel">
-            <div>
+          <section
+            aria-live="polite"
+            className={`prompt-panel action-dock ${
+              actions.length > 0 || canStartTransmission ? "action-dock--decision" : "action-dock--passive"
+            }${projection.reactionWindow ? " action-dock--reaction" : ""}`}
+          >
+            <div className="action-dock__copy">
               <p>
                 {projection.reactionWindow
                   ? `响应窗口：${reactionWindowLabel(projection.reactionWindow.kind)}`
@@ -1280,19 +1326,39 @@ export function GameTable({
                 {!projection.reactionWindow && reactionTimer && <ReactionCountdown key={reactionTimer.promptId} timer={reactionTimer} />}
               </p>
               <h2>{promptTitle(projection)}</h2>
+              <small>{promptDescription(projection)}</small>
             </div>
             <div className="prompt-actions">
-              {visiblePromptActions.map((action, index) => (
-                <button
-                  className={`prompt-action${action.type.startsWith("PASS_") || action.type === "DECLINE_INTELLIGENCE" ? " prompt-action--secondary" : ""}`}
-                  disabled={busy || !connected}
-                  key={`${action.type}-${index}`}
-                  onClick={() => dispatchCommand(action)}
-                  type="button"
-                >
-                  {actionDetail(action, projection, playerDisplayNames)}
-                </button>
-              ))}
+              {primaryPromptActions.length > 0 && (
+                <div aria-label="主要操作" className="prompt-actions__group prompt-actions__group--primary" role="group">
+                  {primaryPromptActions.map((action, index) => (
+                    <button
+                      className="prompt-action"
+                      disabled={busy || !connected}
+                      key={`${action.type}-${index}`}
+                      onClick={() => dispatchCommand(action)}
+                      type="button"
+                    >
+                      {actionDetail(action, projection, playerDisplayNames)}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {secondaryPromptActions.length > 0 && (
+                <div aria-label="次要操作" className="prompt-actions__group prompt-actions__group--secondary" role="group">
+                  {secondaryPromptActions.map((action, index) => (
+                    <button
+                      className="prompt-action prompt-action--secondary"
+                      disabled={busy || !connected}
+                      key={`${action.type}-${index}`}
+                      onClick={() => dispatchCommand(action)}
+                      type="button"
+                    >
+                      {actionDetail(action, projection, playerDisplayNames)}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 

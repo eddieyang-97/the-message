@@ -11,7 +11,9 @@ import {
   factionBackgroundClass,
   formatAuditEntries,
   inspectedHandForProjection,
+  isSecondaryPromptAction,
   privateNoticeVariantText,
+  promptDescription,
   probeIdentityNoticeText,
   isNearScrollBottom,
   mergeAuditLogs,
@@ -400,6 +402,44 @@ describe("transmission prompt", () => {
       },
       legalActions: [],
     })).toBe("秘密下达要求：请选择黑色情报");
+  });
+});
+
+describe("action dock hierarchy", () => {
+  it("separates skip and decline commands from primary actions", () => {
+    expect(isSecondaryPromptAction({ type: "PASS_REACTION" })).toBe(true);
+    expect(isSecondaryPromptAction({ type: "PASS_LOCK" })).toBe(true);
+    expect(isSecondaryPromptAction({ type: "DECLINE_INTELLIGENCE" })).toBe(true);
+    expect(isSecondaryPromptAction({ type: "ACCEPT_INTELLIGENCE" })).toBe(false);
+  });
+
+  it("gives passive and reaction states concise guidance", () => {
+    expect(promptDescription({
+      ...projection,
+      legalActions: [],
+    })).toBe("当前无需操作，状态变化后会自动更新。");
+    expect(promptDescription({
+      ...projection,
+      reactionWindow: {
+        kind: "intelligence",
+        currentResponderId: "甲",
+      },
+      legalActions: [{ type: "PASS_REACTION" }],
+    })).toBe("可使用高亮手牌，或选择下方的可用操作。");
+  });
+
+  it("treats transmission card selection as an active decision", () => {
+    expect(promptDescription({
+      ...projection,
+      phase: "preTransmission",
+      activePlayerId: "甲",
+      pendingSecretOrder: {
+        stage: "selection",
+        targetPlayerId: "甲",
+        verifiedNoMatch: false,
+      },
+      legalActions: [],
+    })).toBe("请选择一张高亮情报牌；选中后再确认传递方式和目标。");
   });
 });
 
