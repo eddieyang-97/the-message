@@ -14,6 +14,7 @@ import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reaction
 import { GameTable } from "./GameTable";
 import {
   loadSoundEnabledPreference,
+  playerReactionSoundPhase,
   playGameSound,
   saveSoundEnabledPreference,
   soundCueForAuditEntries,
@@ -195,7 +196,12 @@ export function App() {
     }
     if (!latest || latest.id === lastReactionSoundId.current) return;
     lastReactionSoundId.current = latest.id;
-    if (soundEnabled) playGameSound(latest.kind);
+    if (
+      soundEnabled &&
+      playerReactionSoundPhase(latest.kind) === "immediate"
+    ) {
+      playGameSound(latest.kind);
+    }
   }, [playerReactions, soundEnabled]);
 
   const updateAutoPassDelay = useCallback((milliseconds: AutoPassDelayMs) => {

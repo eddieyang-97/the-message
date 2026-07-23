@@ -177,7 +177,11 @@ export function SpectatorTable({
       {discardPileOpen && (
         <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
       )}
-      <PlayerReactionLayer events={playerReactions} playerDisplayNames={playerDisplayNames} />
+      <PlayerReactionLayer
+        events={playerReactions}
+        playerDisplayNames={playerDisplayNames}
+        soundEnabled={soundEnabled}
+      />
     </main>
   );
 }

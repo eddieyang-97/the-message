@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 import type { PlayerReactionEvent, PlayerReactionKind } from "../social-reactions";
+import { playerReactionSoundPhase, playGameSound } from "./game-sounds";
 import "./player-reactions.css";
 
 interface PositionedReaction extends PlayerReactionEvent {
@@ -15,6 +16,7 @@ interface PositionedReaction extends PlayerReactionEvent {
 export interface PlayerReactionLayerProps {
   events: readonly PlayerReactionEvent[];
   playerDisplayNames?: Readonly<Record<string, string>>;
+  soundEnabled?: boolean;
 }
 
 export interface PlayerReactionMenuProps {
@@ -82,6 +84,7 @@ export function playerReactionLabel(
 export function PlayerReactionLayer({
   events,
   playerDisplayNames = {},
+  soundEnabled = false,
 }: PlayerReactionLayerProps) {
   const seenIds = useRef(new Set<string>());
   const [active, setActive] = useState<PositionedReaction[]>([]);
@@ -134,6 +137,14 @@ export function PlayerReactionLayer({
           <span
             className="player-reaction__impact"
             aria-hidden="true"
+            onAnimationStart={() => {
+              if (
+                soundEnabled &&
+                playerReactionSoundPhase(event.kind) === "impact"
+              ) {
+                playGameSound(event.kind);
+              }
+            }}
             onAnimationEnd={() => setActive((current) =>
               current.filter((candidate) => candidate.id !== event.id)
             )}

@@ -1,4 +1,5 @@
 import type { PlayerProjection, WinnerState } from "../game/engine";
+import type { PlayerReactionKind } from "../social-reactions";
 
 export type GameSoundCue =
   | "draw"
@@ -14,6 +15,12 @@ export type GameSoundCue =
   | "tomato";
 
 export const SOUND_ENABLED_STORAGE_KEY = "fengsheng:sound-enabled";
+
+export function playerReactionSoundPhase(
+  kind: PlayerReactionKind,
+): "immediate" | "impact" {
+  return kind === "tomato" ? "impact" : "immediate";
+}
 
 let audioContext: AudioContext | undefined;
 
@@ -32,12 +39,19 @@ function tone(
   duration: number,
   volume: number,
   type: OscillatorType = "sine",
+  endFrequency?: number,
 ): void {
   const start = audio.currentTime + delay;
   const oscillator = audio.createOscillator();
   const gain = audio.createGain();
   oscillator.type = type;
   oscillator.frequency.setValueAtTime(frequency, start);
+  if (endFrequency !== undefined) {
+    oscillator.frequency.exponentialRampToValueAtTime(
+      endFrequency,
+      start + duration,
+    );
+  }
   gain.gain.setValueAtTime(0.0001, start);
   gain.gain.exponentialRampToValueAtTime(volume, start + 0.008);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
@@ -119,8 +133,8 @@ function renderCue(audio: AudioContext, cue: GameSoundCue): void {
       tone(audio, 1175, 0.08, 0.2, 0.035, "sine");
       break;
     case "tomato":
-      noise(audio, 0, 0.12, 0.055, 700);
-      tone(audio, 95, 0, 0.15, 0.04, "triangle");
+      noise(audio, 0, 0.24, 0.065, 900);
+      tone(audio, 105, 0, 0.28, 0.055, "triangle", 55);
       break;
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Faction, PhysicalCard, PhysicalCardId } from "../game/cards";
 import type { PlayerProjection } from "../game/engine";
@@ -793,6 +793,7 @@ export function GameTable({
   const [autoPassNoAction, setAutoPassNoAction] = useState(loadAutoPassPreference);
   const [autoPassIgnoreBurn, setAutoPassIgnoreBurn] = useState(loadAutoPassIgnoreBurnPreference);
   const lastAutoPassPrompt = useRef<string | undefined>(undefined);
+  const pendingAutoPassTimer = useRef<number | undefined>(undefined);
   const [transmissionMethod, setTransmissionMethod] = useState<"密电" | "文本" | "直达">("直达");
   const [direction, setDirection] = useState<"clockwise" | "counterclockwise">("clockwise");
   const [discardPileOpen, setDiscardPileOpen] = useState(false);
@@ -909,8 +910,21 @@ export function GameTable({
         : undefined
   );
 
+  const cancelPendingAutoPass = useCallback(() => {
+    if (pendingAutoPassTimer.current === undefined) return;
+    window.clearTimeout(pendingAutoPassTimer.current);
+    pendingAutoPassTimer.current = undefined;
+  }, []);
+
+  const dispatchCommand = useCallback((command: GameCommand) => {
+    cancelPendingAutoPass();
+    if (autoPassPrompt) lastAutoPassPrompt.current = autoPassPrompt;
+    onCommand(command);
+  }, [autoPassPrompt, cancelPendingAutoPass, onCommand]);
+
   useEffect(() => {
     if (!autoPassPrompt) {
+      cancelPendingAutoPass();
       lastAutoPassPrompt.current = undefined;
       return;
     }
@@ -929,14 +943,25 @@ export function GameTable({
       onCommand(autoPassAction);
       return;
     }
-    const timeout = window.setTimeout(() => onCommand(autoPassAction), delayMs);
-    return () => window.clearTimeout(timeout);
-  }, [autoPassAction, autoPassDelayMs, autoPassNoAction, autoPassPrompt, busy, connected, onCommand, projection.own.hand.length]);
+    const timeout = window.setTimeout(() => {
+      if (pendingAutoPassTimer.current === timeout) {
+        pendingAutoPassTimer.current = undefined;
+      }
+      onCommand(autoPassAction);
+    }, delayMs);
+    pendingAutoPassTimer.current = timeout;
+    return () => {
+      window.clearTimeout(timeout);
+      if (pendingAutoPassTimer.current === timeout) {
+        pendingAutoPassTimer.current = undefined;
+      }
+    };
+  }, [autoPassAction, autoPassDelayMs, autoPassNoAction, autoPassPrompt, busy, cancelPendingAutoPass, connected, onCommand, projection.own.hand.length]);
 
   const chooseTarget = (targetId: string) => {
     const matches = selectedActions.filter((action) => actionTargetId(action) === targetId);
     if (matches.length === 1) {
-      onCommand(matches[0]);
+      dispatchCommand(matches[0]);
       return;
     }
     if (
@@ -945,7 +970,7 @@ export function GameTable({
       effectiveMethod === "直达" &&
       directTransmissionTargetIds.includes(targetId)
     ) {
-      onCommand({
+      dispatchCommand({
         type: "START_TRANSMISSION",
         cardId: selectedCard.id as PhysicalCardId,
         method: effectiveMethod,
@@ -1176,7 +1201,7 @@ export function GameTable({
                           playable={Boolean(burnAction)}
                           inspectable={card.name === "公开文本" && !burnAction}
                           onClick={burnAction && !busy && connected
-                            ? () => onCommand(burnAction)
+                            ? () => dispatchCommand(burnAction)
                             : card.name === "公开文本"
                               ? () => setDetailCard(card)
                               : undefined}
@@ -1262,7 +1287,7 @@ export function GameTable({
                   className={`prompt-action${action.type.startsWith("PASS_") || action.type === "DECLINE_INTELLIGENCE" ? " prompt-action--secondary" : ""}`}
                   disabled={busy || !connected}
                   key={`${action.type}-${index}`}
-                  onClick={() => onCommand(action)}
+                  onClick={() => dispatchCommand(action)}
                   type="button"
                 >
                   {actionDetail(action, projection, playerDisplayNames)}
@@ -1320,7 +1345,7 @@ export function GameTable({
               <div className="hand-row">
                 {inspectedHand.map((card) => {
                   const action = actions.find((candidate) => actionCardId(candidate) === card.id);
-                  return <CardView card={card} key={card.id} playable={Boolean(action)} onClick={action ? () => onCommand(action) : undefined} />;
+                  return <CardView card={card} key={card.id} playable={Boolean(action)} onClick={action ? () => dispatchCommand(action) : undefined} />;
                 })}
               </div>
             </section>
@@ -1353,9 +1378,9 @@ export function GameTable({
                   </select>
                 )}
                 {effectiveMethod === "直达" ? projection.players.filter((player) => player.alive && player.id !== projection.own.id).map((player) => (
-                  <button disabled={busy || !connected} key={player.id} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">{playerDisplayNames[player.id] ?? player.id}</button>
+                  <button disabled={busy || !connected} key={player.id} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, targetId: player.id })} type="button">{playerDisplayNames[player.id] ?? player.id}</button>
                 )) : (
-                  <button disabled={busy || !connected} onClick={() => onCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">开始传递</button>
+                  <button disabled={busy || !connected} onClick={() => dispatchCommand({ type: "START_TRANSMISSION", cardId: selectedCard.id as PhysicalCardId, method: effectiveMethod, direction: transmissionDirectionForSelection(projection.mode, selectedCard.circle, direction) })} type="button">开始传递</button>
                 )}
               </div>
             )}
@@ -1412,7 +1437,11 @@ export function GameTable({
         <DiscardPileDialog cards={projection.publicDiscard} onClose={() => setDiscardPileOpen(false)} />
       )}
       {detailCard && <CardDetailDialog card={detailCard} onClose={() => setDetailCard(undefined)} />}
-      <PlayerReactionLayer events={playerReactions} playerDisplayNames={playerDisplayNames} />
+      <PlayerReactionLayer
+        events={playerReactions}
+        playerDisplayNames={playerDisplayNames}
+        soundEnabled={soundEnabled}
+      />
     </main>
   );
 }

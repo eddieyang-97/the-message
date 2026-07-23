@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  playerReactionSoundPhase,
   soundCueForAuditEntries,
   winnerSoundCue,
 } from "./game-sounds";
 
 describe("game sound cues", () => {
+  it("plays flowers immediately but waits for tomato impact", () => {
+    expect(playerReactionSoundPhase("flower")).toBe("immediate");
+    expect(playerReactionSoundPhase("tomato")).toBe("impact");
+  });
+
   it("classifies the main public game events by priority", () => {
     expect(soundCueForAuditEntries(["甲回合开始并摸2张牌"])).toBe("draw");
     expect(soundCueForAuditEntries(["甲使用锁定"])).toBe("play");
