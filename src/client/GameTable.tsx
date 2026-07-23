@@ -517,7 +517,7 @@ function CardView({
       type="button"
     >
       <strong>{card.name}</strong>
-      <span>{card.color} · {card.transmission}</span>
+      <span className="game-card__meta">{card.color} · {card.transmission}</span>
       {displayedVariantText && <small>{displayedVariantText}</small>}
       {card.circle && <small>可选方向</small>}
       {inspectable && <small className="card-detail-hint">查看详情</small>}
@@ -913,81 +913,102 @@ export function GameTable({
   return (
     <main className={`game-shell ${factionBackgroundClass(projection.own.faction)}`}>
       <header className="game-topbar">
-        <div><strong>风声</strong><span>{projection.mode === "duel" ? "双人模式" : "标准模式"}</span></div>
+        <div className="game-brand">
+          <div className="game-brand__title">
+            <strong>风声</strong>
+            <span>{projection.mode === "duel" ? "双人模式" : "标准模式"}</span>
+          </div>
+          <div className="game-round-meta">
+            <span>牌堆 <b>{projection.drawPileCount}</b></span>
+            <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
+          </div>
+        </div>
         <div className="game-status">
-          <span>牌堆 {projection.drawPileCount}</span>
-          <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
-          <button
-            aria-pressed={soundEnabled}
-            className="sound-toggle"
-            onClick={() => onSoundEnabledChange(!soundEnabled)}
-            title={soundEnabled ? "关闭游戏音效" : "开启游戏音效"}
-            type="button"
-          >
-            {soundEnabled ? "🔊 音效" : "🔇 静音"}
-          </button>
-          <span>旁观：{spectators.filter((spectator) => spectator.connected).map((spectator) => spectator.displayName).join("、") || "无"}</span>
-          <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断，游戏暂停"}</span>
-          <label className="auto-pass-control">
-            <input
-              checked={autoPassNoAction}
-              onChange={(event) => {
-                const checked = event.target.checked;
-                setAutoPassNoAction(checked);
-                try {
-                  localStorage.setItem(AUTO_PASS_STORAGE_KEY, String(checked));
-                } catch {
-                  // The preference remains active for this page when storage is unavailable.
-                }
-              }}
-              type="checkbox"
-            />
-            无可用反应或锁定时自动跳过
-          </label>
-          <label className="auto-pass-control">
-            <input
-              checked={autoPassIgnoreBurn}
-              disabled={!autoPassNoAction}
-              onChange={(event) => {
-                const checked = event.target.checked;
-                setAutoPassIgnoreBurn(checked);
-                try {
-                  localStorage.setItem(AUTO_PASS_IGNORE_BURN_STORAGE_KEY, String(checked));
-                } catch {
-                  // The preference remains active for this page when storage is unavailable.
-                }
-              }}
-              type="checkbox"
-            />
-            自动跳过时忽略烧毁
-          </label>
-          {isHost && (
-            <label className="table-timeout-control">
-              反应时限
-              <select
-                disabled={busy || !connected}
-                onChange={(event) => onReactionTimeoutChange(Number(event.target.value) as ReactionTimeoutSeconds)}
-                value={reactionTimeoutSeconds}
+          <span className="game-status-chip">
+            旁观 {spectators.filter((spectator) => spectator.connected).length}
+          </span>
+          <span className={`game-status-chip ${connected ? "online-dot" : "offline-dot"}`}>
+            {connected ? "● 已连接" : "● 连接中断，游戏暂停"}
+          </span>
+          <details className="game-settings">
+            <summary>⚙ 游戏设置</summary>
+            <div className="game-settings__popover">
+              <button
+                aria-pressed={soundEnabled}
+                className="sound-toggle"
+                onClick={() => onSoundEnabledChange(!soundEnabled)}
+                title={soundEnabled ? "关闭游戏音效" : "开启游戏音效"}
+                type="button"
               >
-                {REACTION_TIMEOUT_OPTIONS.map((seconds) => (
-                  <option key={seconds} value={seconds}>{seconds === 0 ? "关闭" : `${seconds} 秒`}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="table-timeout-control">
-            我的自动跳过等待
-            <select
-              onChange={(event) => onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)}
-              value={autoPassDelayMs}
-            >
-              {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
-                <option key={milliseconds} value={milliseconds}>
-                  {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
-                </option>
-              ))}
-            </select>
-          </label>
+                {soundEnabled ? "🔊 音效已开启" : "🔇 音效已关闭"}
+              </button>
+              <label className="auto-pass-control">
+                <input
+                  checked={autoPassNoAction}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setAutoPassNoAction(checked);
+                    try {
+                      localStorage.setItem(AUTO_PASS_STORAGE_KEY, String(checked));
+                    } catch {
+                      // The preference remains active for this page when storage is unavailable.
+                    }
+                  }}
+                  type="checkbox"
+                />
+                无可用反应或锁定时自动跳过
+              </label>
+              <label className="auto-pass-control">
+                <input
+                  checked={autoPassIgnoreBurn}
+                  disabled={!autoPassNoAction}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setAutoPassIgnoreBurn(checked);
+                    try {
+                      localStorage.setItem(AUTO_PASS_IGNORE_BURN_STORAGE_KEY, String(checked));
+                    } catch {
+                      // The preference remains active for this page when storage is unavailable.
+                    }
+                  }}
+                  type="checkbox"
+                />
+                自动跳过时忽略烧毁
+              </label>
+              {isHost && (
+                <label className="table-timeout-control">
+                  <span>反应时限</span>
+                  <select
+                    disabled={busy || !connected}
+                    onChange={(event) => onReactionTimeoutChange(Number(event.target.value) as ReactionTimeoutSeconds)}
+                    value={reactionTimeoutSeconds}
+                  >
+                    {REACTION_TIMEOUT_OPTIONS.map((seconds) => (
+                      <option key={seconds} value={seconds}>{seconds === 0 ? "关闭" : `${seconds} 秒`}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="table-timeout-control">
+                <span>我的自动跳过等待</span>
+                <select
+                  onChange={(event) => onAutoPassDelayChange(Number(event.target.value) as AutoPassDelayMs)}
+                  value={autoPassDelayMs}
+                >
+                  {AUTO_PASS_DELAY_OPTIONS_MS.map((milliseconds) => (
+                    <option key={milliseconds} value={milliseconds}>
+                      {milliseconds === 0 ? "立即" : `${milliseconds / 1_000} 秒`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {spectators.some((spectator) => spectator.connected) && (
+                <small>
+                  旁观者：{spectators.filter((spectator) => spectator.connected).map((spectator) => spectator.displayName).join("、")}
+                </small>
+              )}
+            </div>
+          </details>
           {isHost && disconnectedLivingPlayers.map((player) => (
             <span className="disconnected-player-actions" key={player.id}>
               <button
@@ -1164,18 +1185,18 @@ export function GameTable({
             <section className={`table-center${projection.transmission ? " table-center--transmission" : ""}`}>
               {projection.transmission ? (
                 <>
-                  <p>待传递情报 · {projection.transmission.method}</p>
+                  <p className="table-center__eyebrow">待传递情报 · {projection.transmission.method}</p>
                   <strong>
                     {playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId}
                     {" → "}
                     {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}
                   </strong>
-                  <span>{projection.transmission.locked
+                  <span className="table-center__status">{projection.transmission.locked
                     ? "已锁定"
                     : receiptStageLabel(projection.transmission.receiptStage)}</span>
                 </>
               ) : (
-                <><p>当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
+                <><p className="table-center__eyebrow">当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
               )}
             </section>
             )}
@@ -1193,7 +1214,13 @@ export function GameTable({
             </div>
             <div className="prompt-actions">
               {visiblePromptActions.map((action, index) => (
-                <button disabled={busy || !connected} key={`${action.type}-${index}`} onClick={() => onCommand(action)} type="button">
+                <button
+                  className={`prompt-action${action.type.startsWith("PASS_") || action.type === "DECLINE_INTELLIGENCE" ? " prompt-action--secondary" : ""}`}
+                  disabled={busy || !connected}
+                  key={`${action.type}-${index}`}
+                  onClick={() => onCommand(action)}
+                  type="button"
+                >
                   {actionDetail(action, projection, playerDisplayNames)}
                 </button>
               ))}

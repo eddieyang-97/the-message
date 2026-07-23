@@ -38,7 +38,7 @@ function PublicCard({ card }: { card: PhysicalCard }) {
       title={publicCardSummary(card)}
     >
       <strong>{card.name}</strong>
-      <span>{card.color} · {card.transmission}</span>
+      <span className="game-card__meta">{card.color} · {card.transmission}</span>
       {card.color === "黑" && card.unburnable && <small className="unburnable-badge">不可烧毁</small>}
     </div>
   );
@@ -66,21 +66,36 @@ export function SpectatorTable({
   return (
     <main className="game-shell game-shell--spectator">
       <header className="game-topbar">
-        <div><strong>风声</strong><span>旁观模式</span></div>
+        <div className="game-brand">
+          <div className="game-brand__title">
+            <strong>风声</strong>
+            <span>旁观模式</span>
+          </div>
+          <div className="game-round-meta">
+            <span>牌堆 <b>{projection.drawPileCount}</b></span>
+            <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
+          </div>
+        </div>
         <div className="game-status">
-          <span>牌堆 {projection.drawPileCount}</span>
-          <DiscardPileButton cards={projection.publicDiscard} onOpen={() => setDiscardPileOpen(true)} />
-          <button
-            aria-pressed={soundEnabled}
-            className="sound-toggle"
-            onClick={() => onSoundEnabledChange(!soundEnabled)}
-            title={soundEnabled ? "关闭游戏音效" : "开启游戏音效"}
-            type="button"
-          >
-            {soundEnabled ? "🔊 音效" : "🔇 静音"}
-          </button>
-          <span className={connected ? "online-dot" : "offline-dot"}>{connected ? "已连接" : "连接中断"}</span>
-          <span>旁观者：{spectators.filter((item) => item.connected).map((item) => item.displayName).join("、") || "无"}</span>
+          <span className={`game-status-chip ${connected ? "online-dot" : "offline-dot"}`}>
+            {connected ? "● 已连接" : "● 连接中断"}
+          </span>
+          <span className="game-status-chip">旁观 {spectators.filter((item) => item.connected).length}</span>
+          <details className="game-settings">
+            <summary>⚙ 旁观设置</summary>
+            <div className="game-settings__popover">
+              <button
+                aria-pressed={soundEnabled}
+                className="sound-toggle"
+                onClick={() => onSoundEnabledChange(!soundEnabled)}
+                title={soundEnabled ? "关闭游戏音效" : "开启游戏音效"}
+                type="button"
+              >
+                {soundEnabled ? "🔊 音效已开启" : "🔇 音效已关闭"}
+              </button>
+              <small>旁观者：{spectators.filter((item) => item.connected).map((item) => item.displayName).join("、") || "无"}</small>
+            </div>
+          </details>
           <button className="spectator-leave-button" onClick={onLeave} type="button">离开旁观</button>
         </div>
       </header>
@@ -120,12 +135,12 @@ export function SpectatorTable({
             <section className="table-center">
               {projection.transmission ? (
                 <>
-                  <p>待传递情报 · {projection.transmission.method}</p>
+                  <p className="table-center__eyebrow">待传递情报 · {projection.transmission.method}</p>
                   <strong>{playerDisplayNames[projection.transmission.senderId] ?? projection.transmission.senderId} → {playerDisplayNames[projection.transmission.intendedRecipientId] ?? projection.transmission.intendedRecipientId}</strong>
                   {projection.transmission.card && <PublicCard card={projection.transmission.card} />}
                 </>
               ) : (
-                <><p>当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
+                <><p className="table-center__eyebrow">当前回合</p><strong>{playerDisplayNames[projection.activePlayerId] ?? projection.activePlayerId}</strong></>
               )}
             </section>
           </div>
