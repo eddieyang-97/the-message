@@ -346,6 +346,12 @@ export function cardVariantText(card: PhysicalCard): string | undefined {
   return undefined;
 }
 
+export function probeIdentityNoticeText(card: PhysicalCard): string | undefined {
+  const variant = card.variant;
+  if (variant?.kind !== "probeIdentity") return undefined;
+  return `${variant.mapping["军情"]}→军情 · ${variant.mapping["潜伏"]}→潜伏 · ${variant.mapping["特工"]}→特工`;
+}
+
 export function publicCardSummary(card: PhysicalCard): string {
   return `${card.name} · ${card.color} · ${card.transmission}`;
 }
@@ -472,14 +478,24 @@ function probeVariantLabel(card: PhysicalCard | undefined): string | undefined {
   return undefined;
 }
 
-function CardView({ card, selected, playable, inspectable, onClick }: {
+function CardView({
+  card,
+  selected,
+  playable,
+  inspectable,
+  reverseProbeMapping = false,
+  onClick,
+}: {
   card: PhysicalCard;
   selected?: boolean;
   playable?: boolean;
   inspectable?: boolean;
+  reverseProbeMapping?: boolean;
   onClick?: () => void;
 }) {
-  const variantText = cardVariantText(card);
+  const variantText = reverseProbeMapping
+    ? probeIdentityNoticeText(card) ?? cardVariantText(card)
+    : cardVariantText(card);
   return (
     <button
       className={`game-card game-card--${cardTone(card)}${selected ? " game-card--selected" : ""}${playable ? " game-card--playable" : ""}${inspectable ? " game-card--inspectable" : ""}`}
@@ -1202,7 +1218,10 @@ export function GameTable({
                         {notice.cards.map((card) => <CardView card={card} key={card.id} />)}
                       </div>
                     ) : (
-                      <CardView card={notice.card} />
+                      <CardView
+                        card={notice.card}
+                        reverseProbeMapping={notice.kind === "probePlayed"}
+                      />
                     )}
                   </div>
                 ))}

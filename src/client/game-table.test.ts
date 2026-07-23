@@ -8,6 +8,7 @@ import {
   automaticPassDelayMs,
   automaticPassCommand,
   cardVariantText,
+  probeIdentityNoticeText,
   factionBackgroundClass,
   formatAuditEntries,
   inspectedHandForProjection,
@@ -83,6 +84,9 @@ const projection = {
 describe("game table card parameters", () => {
   it("shows the printed 试探 and 秘密下达 variants", () => {
     expect(cardVariantText(identityProbe)).toBe("军情→间谍 · 潜伏→卧底 · 特工→好人");
+    expect(probeIdentityNoticeText(identityProbe)).toBe(
+      "间谍→军情 · 卧底→潜伏 · 好人→特工",
+    );
     expect(cardVariantText(secretOrder)).toBe("听风→红 · 看雨→蓝 · 日落→黑");
   });
 
