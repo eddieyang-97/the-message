@@ -1267,12 +1267,12 @@ export function GameTable({
                           card={card}
                           key={card.id}
                           playable={Boolean(burnAction)}
-                          inspectable={card.name === "公开文本" && !burnAction}
-                          onClick={burnAction && !busy && connected
-                            ? () => dispatchCommand(burnAction)
-                            : card.name === "公开文本"
-                              ? () => setDetailCard(card)
-                              : undefined}
+                          inspectable={!burnAction}
+                          onClick={burnAction
+                            ? !busy && connected
+                              ? () => dispatchCommand(burnAction)
+                              : undefined
+                            : () => setDetailCard(card)}
                         />
                       );
                     })}
