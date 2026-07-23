@@ -8,10 +8,11 @@ import {
   automaticPassDelayMs,
   automaticPassCommand,
   cardVariantText,
-  probeIdentityNoticeText,
   factionBackgroundClass,
   formatAuditEntries,
   inspectedHandForProjection,
+  privateNoticeVariantText,
+  probeIdentityNoticeText,
   isNearScrollBottom,
   mergeAuditLogs,
   privateNoticeText,
@@ -87,7 +88,13 @@ describe("game table card parameters", () => {
     expect(probeIdentityNoticeText(identityProbe)).toBe(
       "间谍→军情 · 卧底→潜伏 · 好人→特工",
     );
+    expect(privateNoticeVariantText(identityProbe, true)).toBe(
+      "间谍→军情\n卧底→潜伏\n好人→特工",
+    );
     expect(cardVariantText(secretOrder)).toBe("听风→红 · 看雨→蓝 · 日落→黑");
+    expect(privateNoticeVariantText(secretOrder)).toBe(
+      "听风→红\n看雨→蓝\n日落→黑",
+    );
   });
 
   it("keeps the transmission method in accepted intelligence summaries", () => {

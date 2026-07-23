@@ -352,6 +352,16 @@ export function probeIdentityNoticeText(card: PhysicalCard): string | undefined 
   return `${variant.mapping["军情"]}→军情 · ${variant.mapping["潜伏"]}→潜伏 · ${variant.mapping["特工"]}→特工`;
 }
 
+export function privateNoticeVariantText(
+  card: PhysicalCard,
+  reverseProbeMapping = false,
+): string | undefined {
+  const variantText = reverseProbeMapping
+    ? probeIdentityNoticeText(card) ?? cardVariantText(card)
+    : cardVariantText(card);
+  return variantText?.replaceAll(" · ", "\n");
+}
+
 export function publicCardSummary(card: PhysicalCard): string {
   return `${card.name} · ${card.color} · ${card.transmission}`;
 }
@@ -483,6 +493,7 @@ function CardView({
   selected,
   playable,
   inspectable,
+  noticeSummary = false,
   reverseProbeMapping = false,
   onClick,
 }: {
@@ -490,11 +501,12 @@ function CardView({
   selected?: boolean;
   playable?: boolean;
   inspectable?: boolean;
+  noticeSummary?: boolean;
   reverseProbeMapping?: boolean;
   onClick?: () => void;
 }) {
-  const variantText = reverseProbeMapping
-    ? probeIdentityNoticeText(card) ?? cardVariantText(card)
+  const displayedVariantText = noticeSummary
+    ? privateNoticeVariantText(card, reverseProbeMapping)
     : cardVariantText(card);
   return (
     <button
@@ -506,7 +518,7 @@ function CardView({
     >
       <strong>{card.name}</strong>
       <span>{card.color} · {card.transmission}</span>
-      {variantText && <small>{variantText}</small>}
+      {displayedVariantText && <small>{displayedVariantText}</small>}
       {card.circle && <small>可选方向</small>}
       {inspectable && <small className="card-detail-hint">查看详情</small>}
       {card.color === "黑" && card.unburnable && (
@@ -1215,11 +1227,14 @@ export function GameTable({
                     <p>{privateNoticeText(notice, playerDisplayNames)}</p>
                     {"cards" in notice ? (
                       <div className="hand-row">
-                        {notice.cards.map((card) => <CardView card={card} key={card.id} />)}
+                        {notice.cards.map((card) => (
+                          <CardView card={card} key={card.id} noticeSummary />
+                        ))}
                       </div>
                     ) : (
                       <CardView
                         card={notice.card}
+                        noticeSummary
                         reverseProbeMapping={notice.kind === "probePlayed"}
                       />
                     )}
